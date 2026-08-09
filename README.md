@@ -63,7 +63,7 @@ Nếu sửa danh sách sự kiện trong `newsCalendar.ts`, nhớ cập nhật `
 
 - **Chart nến M1-D1** dựng từ nến 15 phút thật, nội suy mượt cho cảm giác giá chạy liên tục; chọn timeframe M1/M5/M15/M30/H1/H4/D1, nút +/- zoom, tự auto-fit khi nhảy tới thời điểm mới.
 - **Indicators**: VWAP (đè lên chart giá), RSI/ATR (khung riêng bên dưới, đồng bộ trục thời gian) — bật/tắt và chỉnh chu kỳ qua menu Indicators.
-- **Tick thật lúc tin ra**: với các mốc trong `newsCalendar.ts` đã có file JSON tương ứng trong `public/data/news_ticks/`, app phát lại đúng tick lịch sử thật (−1 phút đến +5 phút quanh giờ tin) thay vì mô phỏng — badge "● TICK THẬT" báo khi đang ở trong khung này.
+- **Tick thật lúc tin ra**: với các mốc trong `newsCalendar.ts` đã có file JSON tương ứng trong `public/data/news_ticks/`, app phát lại đúng tick lịch sử thật (−1 phút đến +30 phút quanh giờ tin) thay vì mô phỏng — badge "● TICK THẬT" báo khi đang ở trong khung này. Khi tick thật hết, giá chạy tiếp bằng mô phỏng bình thường (không lặp lại pha bung giá tin tức lần nữa).
 - **"Nến tin"**: bar nào có biên độ vượt trội so với trung bình cục bộ sẽ được coi là tin mạnh — giá bung nhanh trong ~1-2 phút đầu, spread giãn rộng, badge "⚡ TIN MẠNH" hiện lên (áp dụng cho cả đoạn mô phỏng lẫn tick thật).
 - **Nhảy tới lịch tin 2026**: dropdown liệt kê FOMC/NFP/CPI theo đúng giờ UTC thật (đã tính DST), nhảy tới đúng 1 phút trước giờ công bố.
 - **Tài khoản demo**: đòn bẩy 1:500/1:1000, lot tuỳ chỉnh, SL/TP, stop-out tự động khi margin level dưới 50%, nhập số dư tuỳ ý.
