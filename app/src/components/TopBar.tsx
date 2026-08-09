@@ -67,7 +67,7 @@ export default function TopBar({
     if (!ev) return
     const target = ev.ms - 60_000 // land 1 minute before the release
     try {
-      const res = await fetch(`/data/news_ticks/${ev.key}.json`)
+      const res = await fetch(`${import.meta.env.BASE_URL}data/news_ticks/${ev.key}.json`)
       if (res.ok) {
         const rows: [number, number, number][] = await res.json()
         engine.setRealTicks(
