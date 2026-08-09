@@ -457,14 +457,14 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
                     }}
                     className={`sltp-drag-line sltp-drag-${kind}`}
                     style={{ display: 'none' }}
-                    onPointerDown={(e) => startSlTpDrag(e, p.id, kind, price)}
                   >
                     <div
-                      className="sltp-drag-label"
+                      className="sltp-drag-handle"
                       ref={(el) => {
                         if (el) slTpLabelRefs.current.set(key, el)
                         else slTpLabelRefs.current.delete(key)
                       }}
+                      onPointerDown={(e) => startSlTpDrag(e, p.id, kind, price)}
                     />
                   </div>
                 )
