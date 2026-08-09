@@ -54,6 +54,7 @@ export default function TopBar({
   onJump,
 }: Props) {
   const [dt, setDt] = useState('')
+  const [lastNewsMs, setLastNewsMs] = useState<number | null>(null)
 
   const min = range ? msToUtcInputValue(range[0]) : undefined
   const max = range ? msToUtcInputValue(range[1]) : undefined
@@ -70,6 +71,7 @@ export default function TopBar({
   const jumpToNews = async (ms: number) => {
     const ev = NEWS_CALENDAR_2026.find((e) => e.ms === ms)
     if (!ev) return
+    setLastNewsMs(ms)
     const target = ev.ms - 60_000 // land 1 minute before the release
     try {
       const res = await fetch(`${import.meta.env.BASE_URL}data/news_ticks/${symbol}/${ev.key}.json`)
@@ -116,6 +118,14 @@ export default function TopBar({
       </div>
 
       <div className="topbar-right">
+        <button
+          className="btn btn-secondary btn-tiny"
+          onClick={() => lastNewsMs != null && jumpToNews(lastNewsMs)}
+          disabled={lastNewsMs == null}
+          title="Quay lại tin vừa chọn"
+        >
+          ↺
+        </button>
         <select
           className="speed-select news-select"
           defaultValue=""
