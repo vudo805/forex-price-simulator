@@ -1,0 +1,110 @@
+{
+  "FOMC_2026-01-28": {
+    "eventMs": 1769626800000,
+    "windowStartMs": 1769626740000,
+    "windowEndMs": 1769627100000,
+    "tickCount": 4431
+  },
+  "FOMC_2026-03-18": {
+    "eventMs": 1773856800000,
+    "windowStartMs": 1773856740000,
+    "windowEndMs": 1773857100000,
+    "tickCount": 2344
+  },
+  "FOMC_2026-04-29": {
+    "eventMs": 1777485600000,
+    "windowStartMs": 1777485540000,
+    "windowEndMs": 1777485900000,
+    "tickCount": 2815
+  },
+  "FOMC_2026-06-17": {
+    "eventMs": 1781719200000,
+    "windowStartMs": 1781719140000,
+    "windowEndMs": 1781719500000,
+    "tickCount": 4005
+  },
+  "FOMC_2026-07-29": {
+    "eventMs": 1785348000000,
+    "windowStartMs": 1785347940000,
+    "windowEndMs": 1785348300000,
+    "tickCount": 3182
+  },
+  "NFP_2026-01-09": {
+    "eventMs": 1767965400000,
+    "windowStartMs": 1767965340000,
+    "windowEndMs": 1767965700000,
+    "tickCount": 3520
+  },
+  "NFP_2026-02-11": {
+    "eventMs": 1770816600000,
+    "windowStartMs": 1770816540000,
+    "windowEndMs": 1770816900000,
+    "tickCount": 3692
+  },
+  "NFP_2026-03-06": {
+    "eventMs": 1772803800000,
+    "windowStartMs": 1772803740000,
+    "windowEndMs": 1772804100000,
+    "tickCount": 3860
+  },
+  "NFP_2026-05-08": {
+    "eventMs": 1778243400000,
+    "windowStartMs": 1778243340000,
+    "windowEndMs": 1778243700000,
+    "tickCount": 2609
+  },
+  "NFP_2026-06-05": {
+    "eventMs": 1780662600000,
+    "windowStartMs": 1780662540000,
+    "windowEndMs": 1780662900000,
+    "tickCount": 3309
+  },
+  "NFP_2026-07-02": {
+    "eventMs": 1782995400000,
+    "windowStartMs": 1782995340000,
+    "windowEndMs": 1782995700000,
+    "tickCount": 3715
+  },
+  "CPI_2026-01-13": {
+    "eventMs": 1768311000000,
+    "windowStartMs": 1768310940000,
+    "windowEndMs": 1768311300000,
+    "tickCount": 3113
+  },
+  "CPI_2026-02-13": {
+    "eventMs": 1770989400000,
+    "windowStartMs": 1770989340000,
+    "windowEndMs": 1770989700000,
+    "tickCount": 3199
+  },
+  "CPI_2026-03-11": {
+    "eventMs": 1773232200000,
+    "windowStartMs": 1773232140000,
+    "windowEndMs": 1773232500000,
+    "tickCount": 2464
+  },
+  "CPI_2026-04-10": {
+    "eventMs": 1775824200000,
+    "windowStartMs": 1775824140000,
+    "windowEndMs": 1775824500000,
+    "tickCount": 2670
+  },
+  "CPI_2026-05-12": {
+    "eventMs": 1778589000000,
+    "windowStartMs": 1778588940000,
+    "windowEndMs": 1778589300000,
+    "tickCount": 2972
+  },
+  "CPI_2026-06-10": {
+    "eventMs": 1781094600000,
+    "windowStartMs": 1781094540000,
+    "windowEndMs": 1781094900000,
+    "tickCount": 4092
+  },
+  "CPI_2026-07-14": {
+    "eventMs": 1784032200000,
+    "windowStartMs": 1784032140000,
+    "windowEndMs": 1784032500000,
+    "tickCount": 3761
+  }
+}

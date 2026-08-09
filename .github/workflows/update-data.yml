@@ -1,0 +1,39 @@
+name: Update candle data
+
+on:
+  schedule:
+    # 03:00 UTC daily — after the US session has closed, well behind
+    # Dukascopy's own publish lag.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install pandas pyarrow
+
+      - name: Refresh XAUUSD candle data
+        run: python3 scripts/update_candles.py
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ app/public/data/
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "Auto-update XAUUSD candle data"
+            git push
+          fi
