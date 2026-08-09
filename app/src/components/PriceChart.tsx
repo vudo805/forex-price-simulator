@@ -174,6 +174,11 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
 
   // Draggable SL/TP lines, rendered as DOM overlays (like the price label above)
   // rather than lightweight-charts' native price lines, which have no drag support.
+  // Every open position always gets both handles, even before SL/TP is set — an
+  // unset one shows as a dim "+ SL"/"+ TP" ghost sitting just off the entry line,
+  // ready to be dragged out to actually set it.
+  const GHOST_OFFSET_PX = 26
+
   const updateSlTpLines = () => {
     const series = seriesRef.current
     if (!series) return
@@ -181,6 +186,8 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
     positionsRef.current
       .filter((p) => p.symbol === symbol)
       .forEach((p) => {
+        const entryY = series.priceToCoordinate(p.openPrice)
+        const dir = p.side === 'buy' ? 1 : -1
         ;(['sl', 'tp'] as const).forEach((kind) => {
           const key = `${p.id}-${kind}`
           const el = slTpLineRefs.current.get(key)
@@ -189,18 +196,27 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
           // don't fight the user's own in-progress drag with a stale reposition
           if (dragging && dragging.posId === p.id && dragging.kind === kind) return
           const price = kind === 'sl' ? p.sl : p.tp
-          if (price == null) {
-            el.style.display = 'none'
-            return
+          const isSet = price != null
+
+          let y: number | null
+          if (isSet) {
+            y = series.priceToCoordinate(price)
+          } else if (entryY != null) {
+            const offset = kind === 'sl' ? dir * GHOST_OFFSET_PX : -dir * GHOST_OFFSET_PX
+            y = entryY + offset
+          } else {
+            y = null
           }
-          const y = series.priceToCoordinate(price)
           if (y == null) {
             el.style.display = 'none'
             return
           }
           el.style.display = 'block'
           el.style.top = `${y}px`
-          label.textContent = `${kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+          el.classList.toggle('sltp-drag-ghost', !isSet)
+          label.textContent = isSet
+            ? `${kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+            : `+ ${kind.toUpperCase()}`
         })
       })
   }
@@ -232,6 +248,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
       if (el) {
         el.style.display = 'block'
         el.style.top = `${y}px`
+        el.classList.remove('sltp-drag-ghost')
       }
       if (label) label.textContent = `${drag.kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
     }
@@ -443,32 +460,30 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
         {positions
           .filter((p) => p.symbol === symbol)
           .flatMap((p) =>
-            (['sl', 'tp'] as const)
-              .filter((kind) => (kind === 'sl' ? p.sl : p.tp) != null)
-              .map((kind) => {
-                const key = `${p.id}-${kind}`
-                const price = (kind === 'sl' ? p.sl : p.tp)!
-                return (
+            (['sl', 'tp'] as const).map((kind) => {
+              const key = `${p.id}-${kind}`
+              const price = kind === 'sl' ? p.sl : p.tp
+              return (
+                <div
+                  key={key}
+                  ref={(el) => {
+                    if (el) slTpLineRefs.current.set(key, el)
+                    else slTpLineRefs.current.delete(key)
+                  }}
+                  className={`sltp-drag-line sltp-drag-${kind}`}
+                  style={{ display: 'none' }}
+                >
                   <div
-                    key={key}
+                    className="sltp-drag-handle"
                     ref={(el) => {
-                      if (el) slTpLineRefs.current.set(key, el)
-                      else slTpLineRefs.current.delete(key)
+                      if (el) slTpLabelRefs.current.set(key, el)
+                      else slTpLabelRefs.current.delete(key)
                     }}
-                    className={`sltp-drag-line sltp-drag-${kind}`}
-                    style={{ display: 'none' }}
-                  >
-                    <div
-                      className="sltp-drag-handle"
-                      ref={(el) => {
-                        if (el) slTpLabelRefs.current.set(key, el)
-                        else slTpLabelRefs.current.delete(key)
-                      }}
-                      onPointerDown={(e) => startSlTpDrag(e, p.id, kind, price)}
-                    />
-                  </div>
-                )
-              }),
+                    onPointerDown={(e) => startSlTpDrag(e, p.id, kind, price ?? p.openPrice)}
+                  />
+                </div>
+              )
+            }),
           )}
         <div className="chart-tf-controls">
           {TIMEFRAMES.map((tf) => (

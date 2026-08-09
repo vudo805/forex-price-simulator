@@ -395,6 +395,21 @@ body {
   filter: brightness(1.15);
 }
 
+/* unset SL/TP — a dim "+ SL"/"+ TP" ghost near the entry line, ready to drag out */
+.sltp-drag-ghost::before {
+  opacity: 0.5;
+}
+.sltp-drag-ghost .sltp-drag-handle {
+  background: transparent;
+  border: 1px dashed var(--sltp-color);
+  color: var(--sltp-color);
+  opacity: 0.75;
+}
+.sltp-drag-ghost .sltp-drag-handle:hover {
+  opacity: 1;
+  filter: none;
+}
+
 .current-price-label {
   position: absolute;
   right: 0;
