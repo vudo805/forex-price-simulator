@@ -19,7 +19,7 @@ OUT_DIR = ROOT / "app" / "public" / "data" / "news_ticks"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 BEFORE = timedelta(minutes=1)
-AFTER = timedelta(minutes=5)
+AFTER = timedelta(minutes=30)
 
 # Mirrors app/src/newsCalendar.ts — keep in sync if that file changes.
 EVENTS = [

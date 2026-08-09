@@ -179,13 +179,21 @@ export class PriceEngine {
    * Range turns out to separate real releases far more cleanly than tick count.
    */
   private isNewsBar(idx: number): boolean {
+    const bar = this.bars[idx]
+    if (this.realTicks) {
+      const first = this.realTicks[0]
+      const last = this.realTicks[this.realTicks.length - 1]
+      // this bar's reaction already played out via real tick data — once those ticks
+      // run out, let the synthetic tail drift normally instead of re-playing the same
+      // front-loaded spike a second time for the rest of the bar
+      if (bar.time < last.t && bar.time + BAR_MS > first.t) return false
+    }
     const windowSize = 20
     const start = Math.max(0, idx - windowSize)
     if (start === idx) return false
     const neighborhood = this.bars.slice(start, idx)
     if (!neighborhood.length) return false
     const localAvgRange = neighborhood.reduce((s, b) => s + (b.high - b.low), 0) / neighborhood.length
-    const bar = this.bars[idx]
     const barRange = bar.high - bar.low
     return barRange > Math.max(localAvgRange * 2.5, this.globalAvgRange * 2.5)
   }
