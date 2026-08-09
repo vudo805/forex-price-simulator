@@ -26,6 +26,9 @@ jobs:
       - name: Refresh XAUUSD candle data
         run: python3 scripts/update_candles.py
 
+      - name: Fetch real ticks for any newly-reachable news events
+        run: python3 scripts/download_news_ticks.py
+
       - name: Commit and push if data changed
         run: |
           git config user.name "github-actions[bot]"
