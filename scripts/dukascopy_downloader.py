@@ -14,20 +14,28 @@ finishes either — that once hung this same download for 10+ minutes on a
 single stuck hour. A thread pool would abandon that stuck worker thread
 non-daemon and block the whole process from exiting; a plain daemon thread
 per request can be safely left behind instead.
+
+Uses a single shared requests.Session (HTTP keep-alive connection pool)
+rather than a fresh urlopen() per request — reconnecting + re-doing the TLS
+handshake for every one of the ~24 requests/day this makes was the actual
+bottleneck (observed ~10x slower than with a reused connection).
 """
 
 import lzma
-import ssl
 import struct
 import threading
 import time
 from datetime import date, datetime, timedelta
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 import pandas as pd
+import requests
+import urllib3
+from requests.adapters import HTTPAdapter
 
-ssl._create_default_https_context = ssl._create_unverified_context
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+_session = requests.Session()
+_session.verify = False  # matches the prior ssl._create_unverified_context behavior
+_session.mount("https://", HTTPAdapter(pool_connections=1, pool_maxsize=4))
 
 # Dukascopy price = raw_int / POINT_VALUE. Values below are the standard
 # decimal factors used by Dukascopy's own feed metadata.
@@ -53,17 +61,17 @@ def _url(symbol: str, day: date, hour: int) -> str:
 
 
 def _fetch(url: str) -> bytes | None:
-    req = Request(url, headers={"User-Agent": USER_AGENT})
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            with urlopen(req, timeout=30) as resp:
-                return resp.read()
-        except HTTPError as exc:
-            if exc.code == 404:
+            resp = _session.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+            if resp.status_code == 404:
                 return None
+            resp.raise_for_status()
+            return resp.content
+        except requests.exceptions.HTTPError:
             wait = min(2**attempt, 30)
             time.sleep(wait)
-        except (URLError, TimeoutError, ConnectionError):
+        except (requests.exceptions.RequestException, TimeoutError, ConnectionError):
             wait = min(2**attempt, 30)
             time.sleep(wait)
     return None

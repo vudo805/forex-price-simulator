@@ -21,7 +21,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: pip install pandas pyarrow
+        run: pip install -r scripts/requirements.txt
 
       - name: Refresh XAUUSD candle data
         run: python3 scripts/update_candles.py
