@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { Side } from '../types'
-import { CONTRACT_SIZE, marginForLot, type Leverage } from '../hooks/useTradingAccount'
+import { marginForLot, type Leverage } from '../hooks/useTradingAccount'
+import { SYMBOL_MAP, formatPrice, type SymbolId } from '../symbols'
 
 type Props = {
+  symbol: SymbolId
   bid: number
   ask: number
   leverage: Leverage
@@ -13,7 +15,7 @@ type Props = {
 const LOT_STEP = 0.01
 const LOT_PRESETS = [0.01, 0.1, 1]
 
-export default function OrderTicket({ bid, ask, leverage, freeMargin, onOrder }: Props) {
+export default function OrderTicket({ symbol, bid, ask, leverage, freeMargin, onOrder }: Props) {
   const [lot, setLot] = useState(0.1)
   const [useSlTp, setUseSlTp] = useState(false)
   const [sl, setSl] = useState('')
@@ -24,7 +26,7 @@ export default function OrderTicket({ bid, ask, leverage, freeMargin, onOrder }:
   const parsedSl = useSlTp && sl ? Number(sl) : null
   const parsedTp = useSlTp && tp ? Number(tp) : null
 
-  const estMargin = marginForLot(lot, ask || bid || 0, leverage)
+  const estMargin = marginForLot(symbol, lot, ask || bid || 0, leverage)
   const canTrade = bid > 0 && ask > 0
 
   const submit = (side: Side) => {
@@ -62,7 +64,7 @@ export default function OrderTicket({ bid, ask, leverage, freeMargin, onOrder }:
             {p}
           </button>
         ))}
-        <span className="hint">1 lot = {CONTRACT_SIZE} oz</span>
+        <span className="hint">{SYMBOL_MAP[symbol].lotHint}</span>
       </div>
 
       <label className="sltp-toggle">
@@ -96,11 +98,11 @@ export default function OrderTicket({ bid, ask, leverage, freeMargin, onOrder }:
       <div className="order-buttons">
         <button className="btn btn-sell" disabled={!canTrade} onClick={() => submit('sell')}>
           BÁN
-          <span className="order-price">{bid ? bid.toFixed(2) : '—'}</span>
+          <span className="order-price">{formatPrice(bid, symbol)}</span>
         </button>
         <button className="btn btn-buy" disabled={!canTrade} onClick={() => submit('buy')}>
           MUA
-          <span className="order-price">{ask ? ask.toFixed(2) : '—'}</span>
+          <span className="order-price">{formatPrice(ask, symbol)}</span>
         </button>
       </div>
     </div>

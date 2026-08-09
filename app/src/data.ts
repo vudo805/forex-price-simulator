@@ -1,4 +1,5 @@
 import type { Bar, DataIndex } from './types'
+import type { SymbolId } from './symbols'
 
 type RawRow = [number, number, number, number, number, number]
 
@@ -7,11 +8,18 @@ type RawRow = [number, number, number, number, number, number]
 // 404 once this is deployed under a GitHub Pages project subpath.
 const dataUrl = (path: string) => `${import.meta.env.BASE_URL}data/${path}`
 
-export async function loadAllBars(): Promise<{ bars: Bar[]; index: DataIndex }> {
-  const index: DataIndex = await fetch(dataUrl('index.json')).then((r) => r.json())
+let indexCache: Promise<DataIndex> | null = null
+function loadIndex(): Promise<DataIndex> {
+  if (!indexCache) indexCache = fetch(dataUrl('index.json')).then((r) => r.json())
+  return indexCache
+}
+
+export async function loadSymbolBars(symbol: SymbolId): Promise<Bar[]> {
+  const index = await loadIndex()
+  const months = index.symbols[symbol]?.months ?? []
   const perMonth = await Promise.all(
-    index.months.map((m) =>
-      fetch(dataUrl(`XAUUSD_${m.month}.json`)).then((r) => r.json() as Promise<RawRow[]>),
+    months.map((m) =>
+      fetch(dataUrl(`${symbol}_${m.month}.json`)).then((r) => r.json() as Promise<RawRow[]>),
     ),
   )
   const bars: Bar[] = []
@@ -21,5 +29,5 @@ export async function loadAllBars(): Promise<{ bars: Bar[]; index: DataIndex }> 
     }
   }
   bars.sort((a, b) => a.time - b.time)
-  return { bars, index }
+  return bars
 }

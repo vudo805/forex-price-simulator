@@ -12,9 +12,11 @@ import { vwap, rsi, atr, type IndicatorPoint } from '../indicators/compute'
 import { INDICATOR_DEFS, defaultIndicatorState, type IndicatorState } from '../indicators/types'
 import OscillatorPane, { type OscillatorHandle } from './OscillatorPane'
 import IndicatorMenu from './IndicatorMenu'
+import { SYMBOL_MAP, type SymbolId } from '../symbols'
 
 type Props = {
   engine: PriceEngine
+  symbol: SymbolId
   positions: Position[]
 }
 
@@ -76,7 +78,8 @@ function formatHMS(ms: number) {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 }
 
-export default function PriceChart({ engine, positions }: Props) {
+export default function PriceChart({ engine, symbol, positions }: Props) {
+  const pricePrecision = SYMBOL_MAP[symbol].pricePrecision
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -159,7 +162,7 @@ export default function PriceChart({ engine, positions }: Props) {
     priceLabelRef.current.style.top = `${y}px`
     priceLabelRef.current.style.width = `${Math.max(axisWidth, 1)}px`
     priceLabelRef.current.style.background = bullish ? '#26a69a' : '#ef5350'
-    priceLabelPriceRef.current.textContent = bar.close.toFixed(2)
+    priceLabelPriceRef.current.textContent = bar.close.toFixed(pricePrecision)
     priceLabelTimeRef.current.textContent = formatCountdown(remainingSec)
   }
 
@@ -312,7 +315,10 @@ export default function PriceChart({ engine, positions }: Props) {
     priceLinesRef.current.forEach((line) => series.removePriceLine(line))
     priceLinesRef.current.clear()
 
-    positions.forEach((p) => {
+    // positions belonging to a different symbol have prices on a totally different
+    // scale (e.g. an EURUSD entry at 1.08 drawn on the XAUUSD chart) — only the
+    // current chart's own symbol gets price lines
+    positions.filter((p) => p.symbol === symbol).forEach((p) => {
       const entryLine = series.createPriceLine({
         price: p.openPrice,
         color: p.side === 'buy' ? '#26a69a' : '#ef5350',
@@ -345,7 +351,7 @@ export default function PriceChart({ engine, positions }: Props) {
         priceLinesRef.current.set(p.id * 10 + 2, l)
       }
     })
-  }, [positions])
+  }, [positions, symbol])
 
   const rsiDef = INDICATOR_DEFS.find((d) => d.id === 'rsi')!
   const atrDef = INDICATOR_DEFS.find((d) => d.id === 'atr')!

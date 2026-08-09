@@ -1,8 +1,9 @@
-"""Download real Dukascopy ticks for a window around each known 2026 news event
-and save them as compact JSON for the app to splice into the simulation.
+"""Download real Dukascopy ticks for a window around each known 2026 news event,
+for every tracked symbol, and save them as compact JSON for the app to splice
+into the simulation.
 
 Reuses the tick fetch/decode logic from dukascopy_downloader.py in this same
-folder (same data source that produced our XAUUSD OHLC bars). That module's
+folder (same data source that produced our OHLC bars). That module's
 download_hour_ticks() already enforces a hard per-hour timeout, so no extra
 wrapper is needed here.
 """
@@ -13,10 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dukascopy_downloader import download_hour_ticks  # noqa: E402
+from symbols import SYMBOLS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT_DIR = ROOT / "app" / "public" / "data" / "news_ticks"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_ROOT = ROOT / "app" / "public" / "data" / "news_ticks"
 
 BEFORE = timedelta(minutes=1)
 AFTER = timedelta(minutes=30)
@@ -56,65 +57,78 @@ EVENTS = [
     ("CPI_2026-12-10", datetime(2026, 12, 10, 13, 30, tzinfo=timezone.utc)),
 ]
 
-manifest = {}
 
-for key, event_time in EVENTS:
-    out_path = OUT_DIR / f"{key}.json"
-    win_start = event_time - BEFORE
-    win_end = event_time + AFTER
+def download_for_symbol(symbol: str):
+    out_dir = OUT_ROOT / symbol
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {}
 
-    if out_path.exists():
-        rows = json.loads(out_path.read_text())
+    for key, event_time in EVENTS:
+        out_path = out_dir / f"{key}.json"
+        win_start = event_time - BEFORE
+        win_end = event_time + AFTER
+
+        if out_path.exists():
+            rows = json.loads(out_path.read_text())
+            manifest[key] = {
+                "eventMs": int(event_time.timestamp() * 1000),
+                "windowStartMs": int(win_start.timestamp() * 1000),
+                "windowEndMs": int(win_end.timestamp() * 1000),
+                "tickCount": len(rows),
+            }
+            print(f"{symbol}/{key}: already downloaded ({len(rows)} ticks), skipping")
+            continue
+
+        hours_needed = set()
+        t = win_start.replace(minute=0, second=0, microsecond=0)
+        while t <= win_end:
+            hours_needed.add((t.date(), t.hour))
+            t += timedelta(hours=1)
+
+        frames = []
+        for day, hour in sorted(hours_needed):
+            df = download_hour_ticks(symbol, day, hour)
+            if not df.empty:
+                frames.append(df)
+
+        if not frames:
+            print(f"{symbol}/{key}: NO DATA (market closed?)")
+            continue
+
+        import pandas as pd
+
+        ticks = pd.concat(frames, ignore_index=True)
+        ticks["time"] = pd.to_datetime(ticks["time"], utc=True)
+        win_start_ts = pd.Timestamp(win_start)
+        win_end_ts = pd.Timestamp(win_end)
+        ticks = ticks[(ticks["time"] >= win_start_ts) & (ticks["time"] <= win_end_ts)]
+        ticks = ticks.sort_values("time")
+
+        if ticks.empty:
+            print(f"{symbol}/{key}: 0 ticks in window (skipped)")
+            continue
+
+        rows = [
+            [int(row.time.value // 1_000_000), round(float(row.bid), 5), round(float(row.ask), 5)]
+            for row in ticks.itertuples()
+        ]
+        out_path.write_text(json.dumps(rows, separators=(",", ":")))
         manifest[key] = {
             "eventMs": int(event_time.timestamp() * 1000),
             "windowStartMs": int(win_start.timestamp() * 1000),
             "windowEndMs": int(win_end.timestamp() * 1000),
             "tickCount": len(rows),
         }
-        print(f"{key}: already downloaded ({len(rows)} ticks), skipping")
-        continue
+        print(f"{symbol}/{key}: {len(rows)} real ticks -> {out_path.name}")
 
-    hours_needed = set()
-    t = win_start.replace(minute=0, second=0, microsecond=0)
-    while t <= win_end:
-        hours_needed.add((t.date(), t.hour))
-        t += timedelta(hours=1)
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    print(f"{symbol}: done. {len(manifest)}/{len(EVENTS)} events have real tick data.")
 
-    frames = []
-    for day, hour in sorted(hours_needed):
-        df = download_hour_ticks("XAUUSD", day, hour)
-        if not df.empty:
-            frames.append(df)
 
-    if not frames:
-        print(f"{key}: NO DATA (market closed?)")
-        continue
+def main():
+    for symbol in SYMBOLS:
+        download_for_symbol(symbol)
 
-    import pandas as pd
 
-    ticks = pd.concat(frames, ignore_index=True)
-    ticks["time"] = pd.to_datetime(ticks["time"], utc=True)
-    win_start_ts = pd.Timestamp(win_start)
-    win_end_ts = pd.Timestamp(win_end)
-    ticks = ticks[(ticks["time"] >= win_start_ts) & (ticks["time"] <= win_end_ts)]
-    ticks = ticks.sort_values("time")
-
-    if ticks.empty:
-        print(f"{key}: 0 ticks in window (skipped)")
-        continue
-
-    rows = [
-        [int(row.time.value // 1_000_000), round(float(row.bid), 3), round(float(row.ask), 3)]
-        for row in ticks.itertuples()
-    ]
-    out_path.write_text(json.dumps(rows, separators=(",", ":")))
-    manifest[key] = {
-        "eventMs": int(event_time.timestamp() * 1000),
-        "windowStartMs": int(win_start.timestamp() * 1000),
-        "windowEndMs": int(win_end.timestamp() * 1000),
-        "tickCount": len(rows),
-    }
-    print(f"{key}: {len(rows)} real ticks -> {out_path.name}")
-
-(OUT_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2))
-print(f"\nDone. {len(manifest)}/{len(EVENTS)} events have real tick data.")
+if __name__ == "__main__":
+    main()

@@ -1,24 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PriceEngine } from '../engine/priceEngine'
 import type { ClosedTrade, Position, Side } from '../types'
+import { SYMBOL_MAP, type SymbolId } from '../symbols'
 
-export const CONTRACT_SIZE = 100 // oz per lot, standard XAUUSD CFD convention
 export const STARTING_BALANCE = 10000
 const STOP_OUT_LEVEL = 50 // % margin level -> forced liquidation
 
 export type Leverage = 500 | 1000
+export type PriceQuote = { bid: number; ask: number }
 
-export function positionPnl(p: Position, bid: number, ask: number) {
-  const closePrice = p.side === 'buy' ? bid : ask
+export function positionPnl(p: Position, quote: PriceQuote) {
+  const spec = SYMBOL_MAP[p.symbol]
+  const closePrice = p.side === 'buy' ? quote.bid : quote.ask
   const dir = p.side === 'buy' ? 1 : -1
-  return (closePrice - p.openPrice) * dir * p.lot * CONTRACT_SIZE
+  const raw = (closePrice - p.openPrice) * dir * p.lot * spec.contractSize
+  // USD-base pairs (USDJPY, USDCAD) settle P/L in the quote currency — convert
+  // to the account's USD terms by dividing by the current rate.
+  return spec.quoteIsUsd ? raw : raw / closePrice
 }
 
-export function marginForLot(lot: number, price: number, leverage: Leverage) {
-  return (lot * CONTRACT_SIZE * price) / leverage
+export function marginForLot(symbol: SymbolId, lot: number, price: number, leverage: Leverage) {
+  const spec = SYMBOL_MAP[symbol]
+  const notionalUsd = spec.quoteIsUsd ? spec.contractSize * lot * price : spec.contractSize * lot
+  return notionalUsd / leverage
 }
 
-export function useTradingAccount(engine: PriceEngine) {
+export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
   const [balance, setBalance] = useState(STARTING_BALANCE)
   const [leverage, setLeverage] = useState<Leverage>(500)
   const [positions, setPositions] = useState<Position[]>([])
@@ -27,11 +34,21 @@ export function useTradingAccount(engine: PriceEngine) {
   const [stopOutAlert, setStopOutAlert] = useState<string | null>(null)
 
   const positionsRef = useRef<Position[]>([])
-  const priceRef = useRef({ bid: 0, ask: 0, mid: 0 })
+  // last known bid/ask per symbol — only the currently active symbol gets fresh
+  // ticks, so positions opened under a different symbol keep marking-to-market
+  // at whatever price that symbol last showed until it's active again
+  const priceBySymbolRef = useRef<Partial<Record<SymbolId, PriceQuote>>>({})
+  const activeSymbolRef = useRef(activeSymbol)
   const balanceRef = useRef(STARTING_BALANCE)
   const nextId = useRef(1)
   const lastUiUpdate = useRef(0)
 
+  useEffect(() => {
+    activeSymbolRef.current = activeSymbol
+    // the previous symbol's last tick would otherwise linger on screen
+    // mislabeled as this symbol's price until the new one starts ticking
+    setPrice({ bid: 0, ask: 0, mid: 0, newsSpike: false, isRealData: false })
+  }, [activeSymbol])
   useEffect(() => {
     positionsRef.current = positions
   }, [positions])
@@ -39,13 +56,15 @@ export function useTradingAccount(engine: PriceEngine) {
     balanceRef.current = balance
   }, [balance])
 
+  const quoteFor = (symbol: SymbolId): PriceQuote => priceBySymbolRef.current[symbol] ?? { bid: 0, ask: 0 }
+
   const closePosition = useCallback(
     (id: number, reason: ClosedTrade['reason']) => {
       const pos = positionsRef.current.find((p) => p.id === id)
       if (!pos) return
-      const { bid, ask } = priceRef.current
-      const closePrice = pos.side === 'buy' ? bid : ask
-      const pnl = positionPnl(pos, bid, ask)
+      const quote = quoteFor(pos.symbol)
+      const closePrice = pos.side === 'buy' ? quote.bid : quote.ask
+      const pnl = positionPnl(pos, quote)
       const trade: ClosedTrade = {
         ...pos,
         closePrice,
@@ -64,11 +83,13 @@ export function useTradingAccount(engine: PriceEngine) {
 
   const openPosition = useCallback(
     (side: Side, lot: number, sl: number | null, tp: number | null) => {
-      const { bid, ask } = priceRef.current
-      if (!bid || !ask) return
-      const openPrice = side === 'buy' ? ask : bid
+      const symbol = activeSymbolRef.current
+      const quote = quoteFor(symbol)
+      if (!quote.bid || !quote.ask) return
+      const openPrice = side === 'buy' ? quote.ask : quote.bid
       const pos: Position = {
         id: nextId.current++,
+        symbol,
         side,
         lot,
         openPrice,
@@ -84,10 +105,13 @@ export function useTradingAccount(engine: PriceEngine) {
 
   useEffect(() => {
     const off = engine.onTick(({ bid, ask, mid, newsSpike, isRealData }) => {
-      priceRef.current = { bid, ask, mid }
+      const symbol = activeSymbolRef.current
+      priceBySymbolRef.current[symbol] = { bid, ask }
 
-      // SL/TP checks every tick (cheap, few positions)
+      // SL/TP checks every tick — only meaningful for positions in the symbol
+      // that's actually receiving live ticks right now
       for (const p of positionsRef.current) {
+        if (p.symbol !== symbol) continue
         const curClose = p.side === 'buy' ? bid : ask
         if (p.side === 'buy') {
           if (p.sl != null && curClose <= p.sl) {
@@ -110,13 +134,14 @@ export function useTradingAccount(engine: PriceEngine) {
         }
       }
 
-      // margin / stop-out check
+      // margin / stop-out check across all open positions, using each one's
+      // own last-known price (only `symbol`'s is fresh this tick)
       if (positionsRef.current.length) {
         let usedMargin = 0
         let floatingPnl = 0
         for (const p of positionsRef.current) {
-          usedMargin += marginForLot(p.lot, p.openPrice, leverage)
-          floatingPnl += positionPnl(p, bid, ask)
+          usedMargin += marginForLot(p.symbol, p.lot, p.openPrice, leverage)
+          floatingPnl += positionPnl(p, quoteFor(p.symbol))
         }
         const equity = balanceRef.current + floatingPnl
         const marginLevel = usedMargin > 0 ? (equity / usedMargin) * 100 : Infinity
@@ -138,8 +163,8 @@ export function useTradingAccount(engine: PriceEngine) {
     return off
   }, [engine, leverage, closePosition])
 
-  const usedMargin = positions.reduce((s, p) => s + marginForLot(p.lot, p.openPrice, leverage), 0)
-  const floatingPnl = positions.reduce((s, p) => s + positionPnl(p, price.bid, price.ask), 0)
+  const usedMargin = positions.reduce((s, p) => s + marginForLot(p.symbol, p.lot, p.openPrice, leverage), 0)
+  const floatingPnl = positions.reduce((s, p) => s + positionPnl(p, quoteFor(p.symbol)), 0)
   const equity = balance + floatingPnl
   const freeMargin = equity - usedMargin
   const marginLevel = usedMargin > 0 ? (equity / usedMargin) * 100 : null
@@ -165,6 +190,7 @@ export function useTradingAccount(engine: PriceEngine) {
     positions,
     history,
     price,
+    priceBySymbol: priceBySymbolRef.current,
     openPosition,
     closePosition,
     resetAccount,

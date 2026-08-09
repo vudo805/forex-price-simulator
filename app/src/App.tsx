@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PriceEngine } from './engine/priceEngine'
-import { loadAllBars } from './data'
+import { loadSymbolBars } from './data'
 import type { Speed } from './types'
 import { useTradingAccount } from './hooks/useTradingAccount'
+import { SYMBOL_MAP, type SymbolId } from './symbols'
 import TopBar from './components/TopBar'
 import PriceChart from './components/PriceChart'
 import AccountPanel from './components/AccountPanel'
@@ -11,32 +12,39 @@ import PositionsPanel from './components/PositionsPanel'
 
 export default function App() {
   const engine = useMemo(() => new PriceEngine(), [])
+  const [symbol, setSymbol] = useState<SymbolId>('XAUUSD')
   const [ready, setReady] = useState(false)
+  const [noData, setNoData] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<Speed>(300)
   const [range, setRange] = useState<[number, number] | null>(null)
-  const initialJumpDone = useRef(false)
 
-  const account = useTradingAccount(engine)
+  const account = useTradingAccount(engine, symbol)
 
   useEffect(() => {
     let cancelled = false
-    loadAllBars().then(({ bars }) => {
+    setReady(false)
+    setNoData(false)
+    engine.pause()
+    engine.setRealTicks(null)
+    engine.setSpread(SYMBOL_MAP[symbol].defaultSpread)
+    loadSymbolBars(symbol).then((bars) => {
       if (cancelled) return
       engine.setBars(bars)
       setRange(engine.getRange())
       setReady(true)
-      if (!initialJumpDone.current && bars.length) {
-        initialJumpDone.current = true
+      if (bars.length) {
         // start a little into the data so there is history context on the chart
         const startIdx = Math.min(200, bars.length - 1)
         engine.jumpTo(bars[startIdx].time)
+      } else {
+        setNoData(true)
       }
     })
     return () => {
       cancelled = true
     }
-  }, [engine])
+  }, [engine, symbol])
 
   useEffect(() => {
     return engine.onStateChange(() => {
@@ -79,6 +87,7 @@ export default function App() {
     <div className="app">
       <TopBar
         engine={engine}
+        symbol={symbol}
         playing={playing}
         speed={speed}
         bid={account.price.bid}
@@ -87,6 +96,7 @@ export default function App() {
         simTime={engine.getSimTime()}
         newsSpike={account.price.newsSpike}
         isRealData={account.price.isRealData}
+        onSymbolChange={setSymbol}
         onPlayToggle={handlePlayToggle}
         onSpeedChange={handleSpeedChange}
         onJump={handleJump}
@@ -103,8 +113,11 @@ export default function App() {
 
       <div className="main-grid">
         <div className="chart-area">
-          {!ready && <div className="loading">Đang tải dữ liệu XAUUSD...</div>}
-          <PriceChart engine={engine} positions={account.positions} />
+          {!ready && <div className="loading">Đang tải dữ liệu {symbol}...</div>}
+          {ready && noData && (
+            <div className="loading">Chưa có dữ liệu cho {symbol} — đang trong quá trình tải về, quay lại sau.</div>
+          )}
+          <PriceChart engine={engine} symbol={symbol} positions={account.positions} />
         </div>
 
         <div className="side-panel">
@@ -120,6 +133,7 @@ export default function App() {
             onReset={account.resetAccount}
           />
           <OrderTicket
+            symbol={symbol}
             bid={account.price.bid}
             ask={account.price.ask}
             leverage={account.leverage}
@@ -133,8 +147,7 @@ export default function App() {
         <PositionsPanel
           positions={account.positions}
           history={account.history}
-          bid={account.price.bid}
-          ask={account.price.ask}
+          priceBySymbol={account.priceBySymbol}
           onClose={(id) => account.closePosition(id, 'manual')}
         />
       </div>

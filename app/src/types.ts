@@ -1,3 +1,5 @@
+import type { SymbolId } from './symbols'
+
 export type Bar = {
   time: number // ms epoch, bar open time
   open: number
@@ -15,14 +17,14 @@ export type MonthIndexEntry = {
 }
 
 export type DataIndex = {
-  symbol: string
-  months: MonthIndexEntry[]
+  symbols: Record<string, { months: MonthIndexEntry[] }>
 }
 
 export type Side = 'buy' | 'sell'
 
 export type Position = {
   id: number
+  symbol: SymbolId
   side: Side
   lot: number
   openPrice: number

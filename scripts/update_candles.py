@@ -1,6 +1,7 @@
-"""Refresh local XAUUSD candle data from Dukascopy up to the latest available
-day, then regenerate the JSON the web app reads. Meant to run on a schedule
-(see .github/workflows/update-data.yml) — safe to run repeatedly.
+"""Refresh local candle data for every tracked symbol from Dukascopy up to
+the latest available day, then regenerate the JSON the web app reads. Meant
+to run on a schedule (see .github/workflows/update-data.yml) — safe to run
+repeatedly.
 
 Re-downloads only a rolling trailing window (REFRESH_WINDOW_DAYS) ending at
 the cutoff date and splices it into the existing per-month parquet files,
@@ -10,6 +11,10 @@ unbounded as the month goes on (by day 25 it would be re-fetching 24 already-
 correct days just to add 1 new one). A small trailing window still lets
 Dukascopy's occasional late corrections to the last day or two settle in,
 without the runtime growing over the month.
+
+A symbol with no local data yet (e.g. a new one still mid-backfill) is
+skipped rather than treated as an error — nothing to anchor a rolling
+refresh to until the initial backfill finishes.
 
 Does NOT touch app/public/data/news_ticks/ — those are fixed historical
 events downloaded once by download_news_ticks.py.
@@ -23,10 +28,9 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dukascopy_downloader import download_symbol_range, month_ranges, ticks_to_ohlc  # noqa: E402
+from symbols import SYMBOLS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data" / "XAUUSD"
-SYMBOL = "XAUUSD"
 TIMEFRAME = "15min"
 # Dukascopy publishes daily files with a lag (observed 1-2 days) — stop short
 # of "today" so we're not repeatedly re-fetching a day that isn't actually
@@ -37,8 +41,8 @@ LAG_DAYS = 2
 REFRESH_WINDOW_DAYS = 5
 
 
-def earliest_local_month() -> date | None:
-    files = sorted(DATA_DIR.glob(f"{SYMBOL}_*.parquet"))
+def earliest_local_month(data_dir: Path, symbol: str) -> date | None:
+    files = sorted(data_dir.glob(f"{symbol}_*.parquet"))
     if not files:
         return None
     first = files[0].stem.split("_")[-1]
@@ -46,13 +50,13 @@ def earliest_local_month() -> date | None:
     return date(y, m, 1)
 
 
-def refresh_month_chunk(month_start: date, month_end: date) -> bool:
+def refresh_month_chunk(data_dir: Path, symbol: str, month_start: date, month_end: date) -> bool:
     """Fetch [month_start, month_end] and splice it into that month's parquet,
     preserving any existing rows for that month outside the refreshed range.
     Returns True if the file on disk changed."""
-    out_path = DATA_DIR / f"{SYMBOL}_{month_start.strftime('%Y-%m')}.parquet"
-    print(f"refreshing {SYMBOL} {month_start} .. {month_end}")
-    ticks = download_symbol_range(SYMBOL, month_start, month_end)
+    out_path = data_dir / f"{symbol}_{month_start.strftime('%Y-%m')}.parquet"
+    print(f"refreshing {symbol} {month_start} .. {month_end}")
+    ticks = download_symbol_range(symbol, month_start, month_end)
     new_bars = ticks_to_ohlc(ticks, TIMEFRAME)
 
     window_start_ts = pd.Timestamp(month_start)
@@ -67,7 +71,7 @@ def refresh_month_chunk(month_start: date, month_end: date) -> bool:
         combined = new_bars
 
     if combined.empty:
-        print(f"  nothing to save for {month_start:%Y-%m}, skipping")
+        print(f"  nothing to save for {symbol} {month_start:%Y-%m}, skipping")
         return False
 
     combined.to_parquet(out_path)
@@ -75,25 +79,31 @@ def refresh_month_chunk(month_start: date, month_end: date) -> bool:
     return True
 
 
-def main():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    end = date.today() - timedelta(days=LAG_DAYS)
-    window_start = end - timedelta(days=REFRESH_WINDOW_DAYS)
-
-    earliest = earliest_local_month()
+def update_symbol(symbol: str, end: date) -> bool:
+    data_dir = ROOT / "data" / symbol
+    data_dir.mkdir(parents=True, exist_ok=True)
+    earliest = earliest_local_month(data_dir, symbol)
     if earliest is None:
-        print("No existing parquet data found under data/XAUUSD/ — nothing to anchor an update to. Skipping.")
-        return
-    # never reach further back than the data we actually have
-    window_start = max(window_start, earliest)
+        print(f"{symbol}: no existing parquet data yet — skipping (run backfill_symbol.py first)")
+        return False
 
+    window_start = max(end - timedelta(days=REFRESH_WINDOW_DAYS), earliest)
     if window_start > end:
-        print(f"Update window start ({window_start}) is already past the cutoff ({end}). Nothing to do.")
-        return
+        print(f"{symbol}: update window start ({window_start}) already past cutoff ({end}). Nothing to do.")
+        return False
 
     changed = False
     for month_start, month_end in month_ranges(window_start, end):
-        if refresh_month_chunk(month_start, month_end):
+        if refresh_month_chunk(data_dir, symbol, month_start, month_end):
+            changed = True
+    return changed
+
+
+def main():
+    end = date.today() - timedelta(days=LAG_DAYS)
+    changed = False
+    for symbol in SYMBOLS:
+        if update_symbol(symbol, end):
             changed = True
 
     if not changed:

@@ -46,6 +46,17 @@ body {
   letter-spacing: 0.5px;
 }
 
+.symbol-select {
+  background: #14171d;
+  border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.symbol-select:hover {
+  border-color: #3b4252;
+}
+
 .price-block {
   display: flex;
   gap: 10px;

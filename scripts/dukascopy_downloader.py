@@ -44,7 +44,12 @@ POINT_VALUE = {
     "EURUSD": 100000.0,
     "GBPUSD": 100000.0,
     "USDJPY": 1000.0,
+    "USDCAD": 100000.0,
     "AUDUSD": 100000.0,
+    # Verified empirically: raw ask/bid ints for BTCUSD only make sense as a
+    # real BTC price (tens of thousands of USD) and a plausible fixed spread
+    # (~$50) when divided by 10, not 1/100/1000.
+    "BTCUSD": 10.0,
 }
 
 TICK_STRUCT = struct.Struct(">iiiff")

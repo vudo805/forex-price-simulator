@@ -1,12 +1,12 @@
 import type { ClosedTrade, Position } from '../types'
-import { positionPnl } from '../hooks/useTradingAccount'
+import { positionPnl, type PriceQuote } from '../hooks/useTradingAccount'
+import { formatPrice, type SymbolId } from '../symbols'
 import { formatUtcShort } from '../utils/time'
 
 type Props = {
   positions: Position[]
   history: ClosedTrade[]
-  bid: number
-  ask: number
+  priceBySymbol: Partial<Record<SymbolId, PriceQuote>>
   onClose: (id: number) => void
 }
 
@@ -19,7 +19,7 @@ const REASON_LABEL: Record<ClosedTrade['reason'], string> = {
   stopout: 'Stop out',
 }
 
-export default function PositionsPanel({ positions, history, bid, ask, onClose }: Props) {
+export default function PositionsPanel({ positions, history, priceBySymbol, onClose }: Props) {
   return (
     <div className="panel positions-panel">
       <div className="panel-title">Lệnh đang mở ({positions.length})</div>
@@ -27,6 +27,7 @@ export default function PositionsPanel({ positions, history, bid, ask, onClose }
         <table className="pos-table">
           <thead>
             <tr>
+              <th>Symbol</th>
               <th>Loại</th>
               <th>Lot</th>
               <th>Giá mở</th>
@@ -38,16 +39,18 @@ export default function PositionsPanel({ positions, history, bid, ask, onClose }
           </thead>
           <tbody>
             {positions.map((p) => {
-              const pnl = positionPnl(p, bid, ask)
+              const quote = priceBySymbol[p.symbol] ?? { bid: 0, ask: 0 }
+              const pnl = positionPnl(p, quote)
               return (
                 <tr key={p.id}>
+                  <td>{p.symbol}</td>
                   <td className={p.side === 'buy' ? 'side-buy' : 'side-sell'}>
                     {p.side === 'buy' ? 'MUA' : 'BÁN'}
                   </td>
                   <td>{p.lot.toFixed(2)}</td>
-                  <td>{p.openPrice.toFixed(2)}</td>
+                  <td>{formatPrice(p.openPrice, p.symbol)}</td>
                   <td className="small">
-                    {p.sl ? p.sl.toFixed(2) : '—'} / {p.tp ? p.tp.toFixed(2) : '—'}
+                    {p.sl ? formatPrice(p.sl, p.symbol) : '—'} / {p.tp ? formatPrice(p.tp, p.symbol) : '—'}
                   </td>
                   <td className="small">{fmtTime(p.openTime)}</td>
                   <td className={pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}>
@@ -64,7 +67,7 @@ export default function PositionsPanel({ positions, history, bid, ask, onClose }
             })}
             {!positions.length && (
               <tr>
-                <td colSpan={7} className="empty">
+                <td colSpan={8} className="empty">
                   Chưa có lệnh nào
                 </td>
               </tr>
@@ -78,6 +81,7 @@ export default function PositionsPanel({ positions, history, bid, ask, onClose }
         <table className="pos-table">
           <thead>
             <tr>
+              <th>Symbol</th>
               <th>Loại</th>
               <th>Lot</th>
               <th>Mở</th>
@@ -89,12 +93,13 @@ export default function PositionsPanel({ positions, history, bid, ask, onClose }
           <tbody>
             {history.map((t) => (
               <tr key={t.id}>
+                <td>{t.symbol}</td>
                 <td className={t.side === 'buy' ? 'side-buy' : 'side-sell'}>
                   {t.side === 'buy' ? 'MUA' : 'BÁN'}
                 </td>
                 <td>{t.lot.toFixed(2)}</td>
-                <td>{t.openPrice.toFixed(2)}</td>
-                <td>{t.closePrice.toFixed(2)}</td>
+                <td>{formatPrice(t.openPrice, t.symbol)}</td>
+                <td>{formatPrice(t.closePrice, t.symbol)}</td>
                 <td className="small">{REASON_LABEL[t.reason]}</td>
                 <td className={t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}>
                   {t.pnl >= 0 ? '+' : ''}
@@ -104,7 +109,7 @@ export default function PositionsPanel({ positions, history, bid, ask, onClose }
             ))}
             {!history.length && (
               <tr>
-                <td colSpan={6} className="empty">
+                <td colSpan={7} className="empty">
                   Chưa có giao dịch nào
                 </td>
               </tr>

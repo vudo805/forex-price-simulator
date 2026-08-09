@@ -287,6 +287,11 @@ export class PriceEngine {
     return this.spread
   }
 
+  /** Synthetic bid/ask spread — differs a lot by instrument (gold vs a JPY pair vs BTC). */
+  setSpread(spread: number) {
+    this.spread = spread
+  }
+
   getSimTime() {
     return this.simTime
   }

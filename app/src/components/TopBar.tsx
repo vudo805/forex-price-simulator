@@ -3,9 +3,11 @@ import type { PriceEngine } from '../engine/priceEngine'
 import type { Speed } from '../types'
 import { formatUtc, msToUtcInputValue, utcInputValueToMs } from '../utils/time'
 import { NEWS_CALENDAR_2026 } from '../newsCalendar'
+import { SYMBOLS, formatPrice, type SymbolId } from '../symbols'
 
 type Props = {
   engine: PriceEngine
+  symbol: SymbolId
   playing: boolean
   speed: Speed
   bid: number
@@ -14,6 +16,7 @@ type Props = {
   simTime: number
   newsSpike: boolean
   isRealData: boolean
+  onSymbolChange: (s: SymbolId) => void
   onPlayToggle: () => void
   onSpeedChange: (s: Speed) => void
   onJump: (t: number) => void
@@ -36,6 +39,7 @@ const NEWS_GROUPS = [
 
 export default function TopBar({
   engine,
+  symbol,
   playing,
   speed,
   bid,
@@ -44,6 +48,7 @@ export default function TopBar({
   simTime,
   newsSpike,
   isRealData,
+  onSymbolChange,
   onPlayToggle,
   onSpeedChange,
   onJump,
@@ -67,7 +72,7 @@ export default function TopBar({
     if (!ev) return
     const target = ev.ms - 60_000 // land 1 minute before the release
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}data/news_ticks/${ev.key}.json`)
+      const res = await fetch(`${import.meta.env.BASE_URL}data/news_ticks/${symbol}/${ev.key}.json`)
       if (res.ok) {
         const rows: [number, number, number][] = await res.json()
         engine.setRealTicks(
@@ -86,10 +91,20 @@ export default function TopBar({
   return (
     <div className="topbar">
       <div className="topbar-left">
-        <div className="symbol-badge">XAUUSD</div>
+        <select
+          className="symbol-badge symbol-select"
+          value={symbol}
+          onChange={(e) => onSymbolChange(e.target.value as SymbolId)}
+        >
+          {SYMBOLS.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.id}
+            </option>
+          ))}
+        </select>
         <div className="price-block">
-          <div className="price-bid">{bid ? bid.toFixed(2) : '—'}</div>
-          <div className="price-ask">{ask ? ask.toFixed(2) : '—'}</div>
+          <div className="price-bid">{formatPrice(bid, symbol)}</div>
+          <div className="price-ask">{formatPrice(ask, symbol)}</div>
         </div>
         <div className="sim-clock">{formatUtc(simTime)}</div>
         {isRealData && <div className="real-badge">● TICK THẬT</div>}
