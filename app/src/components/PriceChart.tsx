@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   createChart,
   ColorType,
@@ -18,6 +18,7 @@ type Props = {
   engine: PriceEngine
   symbol: SymbolId
   positions: Position[]
+  onUpdateSlTp: (id: number, sl: number | null, tp: number | null) => void
 }
 
 type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1'
@@ -78,7 +79,7 @@ function formatHMS(ms: number) {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 }
 
-export default function PriceChart({ engine, symbol, positions }: Props) {
+export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: Props) {
   const pricePrecision = SYMBOL_MAP[symbol].pricePrecision
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -95,6 +96,11 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
   const priceLineRef = useRef<HTMLDivElement>(null)
   const clockRef = useRef<HTMLDivElement>(null)
   const lastBarCloseSecRef = useRef(0)
+  const slTpLineRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const slTpLabelRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const positionsRef = useRef<Position[]>(positions)
+  positionsRef.current = positions
+  const draggingRef = useRef<{ posId: number; kind: 'sl' | 'tp'; price: number } | null>(null)
   const [timeframe, setTimeframe] = useState<Timeframe>('M1')
   const timeframeRef = useRef(timeframe)
   timeframeRef.current = timeframe
@@ -166,6 +172,85 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
     priceLabelTimeRef.current.textContent = formatCountdown(remainingSec)
   }
 
+  // Draggable SL/TP lines, rendered as DOM overlays (like the price label above)
+  // rather than lightweight-charts' native price lines, which have no drag support.
+  const updateSlTpLines = () => {
+    const series = seriesRef.current
+    if (!series) return
+    const dragging = draggingRef.current
+    positionsRef.current
+      .filter((p) => p.symbol === symbol)
+      .forEach((p) => {
+        ;(['sl', 'tp'] as const).forEach((kind) => {
+          const key = `${p.id}-${kind}`
+          const el = slTpLineRefs.current.get(key)
+          const label = slTpLabelRefs.current.get(key)
+          if (!el || !label) return
+          // don't fight the user's own in-progress drag with a stale reposition
+          if (dragging && dragging.posId === p.id && dragging.kind === kind) return
+          const price = kind === 'sl' ? p.sl : p.tp
+          if (price == null) {
+            el.style.display = 'none'
+            return
+          }
+          const y = series.priceToCoordinate(price)
+          if (y == null) {
+            el.style.display = 'none'
+            return
+          }
+          el.style.display = 'block'
+          el.style.top = `${y}px`
+          label.textContent = `${kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+        })
+      })
+  }
+
+  const startSlTpDrag = (
+    e: ReactPointerEvent<HTMLDivElement>,
+    posId: number,
+    kind: 'sl' | 'tp',
+    initialPrice: number,
+  ) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const container = containerRef.current
+    const series = seriesRef.current
+    if (!container || !series) return
+    draggingRef.current = { posId, kind, price: initialPrice }
+
+    const onMove = (ev: PointerEvent) => {
+      const drag = draggingRef.current
+      if (!drag) return
+      const rect = container.getBoundingClientRect()
+      const y = ev.clientY - rect.top
+      const price = series.coordinateToPrice(y)
+      if (price == null) return
+      drag.price = price
+      const key = `${drag.posId}-${drag.kind}`
+      const el = slTpLineRefs.current.get(key)
+      const label = slTpLabelRefs.current.get(key)
+      if (el) {
+        el.style.display = 'block'
+        el.style.top = `${y}px`
+      }
+      if (label) label.textContent = `${drag.kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      const drag = draggingRef.current
+      draggingRef.current = null
+      if (!drag) return
+      const pos = positionsRef.current.find((p) => p.id === drag.posId)
+      if (!pos) return
+      const newSl = drag.kind === 'sl' ? drag.price : pos.sl
+      const newTp = drag.kind === 'tp' ? drag.price : pos.tp
+      onUpdateSlTp(drag.posId, newSl, newTp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
@@ -211,6 +296,7 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
         height: containerRef.current.clientHeight,
       })
       updatePriceIndicator(lastBarCloseSecRef.current)
+      updateSlTpLines()
     }
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -231,6 +317,7 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
       if (lastBar) {
         lastBarCloseSecRef.current = lastBar.time + tfSec
         updatePriceIndicator(lastBarCloseSecRef.current)
+        updateSlTpLines()
       }
     }
 
@@ -252,6 +339,7 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
       recomputeIndicators(false)
       lastBarCloseSecRef.current = bStart + tfSec
       updatePriceIndicator(lastBarCloseSecRef.current)
+      updateSlTpLines()
     })
 
     return () => {
@@ -279,6 +367,7 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
     if (lastBar) {
       lastBarCloseSecRef.current = lastBar.time + tfSec
       updatePriceIndicator(lastBarCloseSecRef.current)
+      updateSlTpLines()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe])
@@ -308,7 +397,7 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicatorState.atr.enabled, indicatorState.atr.period])
 
-  // draw open-position lines (entry, SL, TP)
+  // draw open-position entry lines (native price lines — just a marker, not draggable)
   useEffect(() => {
     const series = seriesRef.current
     if (!series) return
@@ -327,30 +416,16 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
         axisLabelVisible: true,
         title: `${p.side.toUpperCase()} ${p.lot}`,
       })
-      priceLinesRef.current.set(p.id * 10, entryLine)
-      if (p.sl != null) {
-        const l = series.createPriceLine({
-          price: p.sl,
-          color: '#ef5350',
-          lineWidth: 1,
-          lineStyle: 3,
-          axisLabelVisible: true,
-          title: 'SL',
-        })
-        priceLinesRef.current.set(p.id * 10 + 1, l)
-      }
-      if (p.tp != null) {
-        const l = series.createPriceLine({
-          price: p.tp,
-          color: '#26a69a',
-          lineWidth: 1,
-          lineStyle: 3,
-          axisLabelVisible: true,
-          title: 'TP',
-        })
-        priceLinesRef.current.set(p.id * 10 + 2, l)
-      }
+      priceLinesRef.current.set(p.id, entryLine)
     })
+  }, [positions, symbol])
+
+  // reposition the draggable SL/TP DOM overlays whenever positions or the
+  // active symbol change (dragging itself keeps them in sync during the drag,
+  // and the tick-driven update sites above keep them in sync with price/zoom)
+  useEffect(() => {
+    updateSlTpLines()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions, symbol])
 
   const rsiDef = INDICATOR_DEFS.find((d) => d.id === 'rsi')!
@@ -365,6 +440,36 @@ export default function PriceChart({ engine, symbol, positions }: Props) {
           <div ref={priceLabelPriceRef} className="current-price-value" />
           <div ref={priceLabelTimeRef} className="current-price-countdown" />
         </div>
+        {positions
+          .filter((p) => p.symbol === symbol)
+          .flatMap((p) =>
+            (['sl', 'tp'] as const)
+              .filter((kind) => (kind === 'sl' ? p.sl : p.tp) != null)
+              .map((kind) => {
+                const key = `${p.id}-${kind}`
+                const price = (kind === 'sl' ? p.sl : p.tp)!
+                return (
+                  <div
+                    key={key}
+                    ref={(el) => {
+                      if (el) slTpLineRefs.current.set(key, el)
+                      else slTpLineRefs.current.delete(key)
+                    }}
+                    className={`sltp-drag-line sltp-drag-${kind}`}
+                    style={{ display: 'none' }}
+                    onPointerDown={(e) => startSlTpDrag(e, p.id, kind, price)}
+                  >
+                    <div
+                      className="sltp-drag-label"
+                      ref={(el) => {
+                        if (el) slTpLabelRefs.current.set(key, el)
+                        else slTpLabelRefs.current.delete(key)
+                      }}
+                    />
+                  </div>
+                )
+              }),
+          )}
         <div className="chart-tf-controls">
           {TIMEFRAMES.map((tf) => (
             <button

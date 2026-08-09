@@ -103,6 +103,11 @@ export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
     [engine],
   )
 
+  const updateSlTp = useCallback((id: number, sl: number | null, tp: number | null) => {
+    positionsRef.current = positionsRef.current.map((p) => (p.id === id ? { ...p, sl, tp } : p))
+    setPositions(positionsRef.current)
+  }, [])
+
   useEffect(() => {
     const off = engine.onTick(({ bid, ask, mid, newsSpike, isRealData }) => {
       const symbol = activeSymbolRef.current
@@ -193,6 +198,7 @@ export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
     priceBySymbol: priceBySymbolRef.current,
     openPosition,
     closePosition,
+    updateSlTp,
     resetAccount,
     stopOutAlert,
     dismissStopOutAlert: () => setStopOutAlert(null),

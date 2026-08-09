@@ -66,7 +66,7 @@ Nếu sửa danh sách sự kiện trong `newsCalendar.ts`, nhớ cập nhật `
 - **Tick thật lúc tin ra**: với các mốc trong `newsCalendar.ts` đã có file JSON tương ứng trong `public/data/news_ticks/`, app phát lại đúng tick lịch sử thật (−1 phút đến +30 phút quanh giờ tin) thay vì mô phỏng — badge "● TICK THẬT" báo khi đang ở trong khung này. Khi tick thật hết, giá chạy tiếp bằng mô phỏng bình thường (không lặp lại pha bung giá tin tức lần nữa).
 - **"Nến tin"**: bar nào có biên độ vượt trội so với trung bình cục bộ sẽ được coi là tin mạnh — giá bung nhanh trong ~1-2 phút đầu, spread giãn rộng, badge "⚡ TIN MẠNH" hiện lên (áp dụng cho cả đoạn mô phỏng lẫn tick thật).
 - **Nhảy tới lịch tin 2026**: dropdown liệt kê FOMC/NFP/CPI theo đúng giờ UTC thật (đã tính DST), nhảy tới đúng 1 phút trước giờ công bố.
-- **Tài khoản demo**: đòn bẩy 1:500/1:1000, lot tuỳ chỉnh, SL/TP, stop-out tự động khi margin level dưới 40%, nhập số dư tuỳ ý.
+- **Tài khoản demo**: đòn bẩy 1:500/1:1000, lot tuỳ chỉnh, SL/TP (kéo trực tiếp đường SL/TP trên chart để chỉnh), stop-out tự động khi margin level dưới 40%, nhập số dư tuỳ ý.
 - **Phím tắt**: Space để Phát/Tạm dừng (không hoạt động khi đang gõ vào ô nhập liệu).
 
 ## Lưu ý quan trọng

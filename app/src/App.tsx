@@ -117,7 +117,12 @@ export default function App() {
           {ready && noData && (
             <div className="loading">Chưa có dữ liệu cho {symbol} — đang trong quá trình tải về, quay lại sau.</div>
           )}
-          <PriceChart engine={engine} symbol={symbol} positions={account.positions} />
+          <PriceChart
+            engine={engine}
+            symbol={symbol}
+            positions={account.positions}
+            onUpdateSlTp={account.updateSlTp}
+          />
         </div>
 
         <div className="side-panel">
