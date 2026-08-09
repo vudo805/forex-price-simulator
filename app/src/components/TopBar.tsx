@@ -110,11 +110,7 @@ export default function TopBar({
         </div>
         <div className="sim-clock">{formatUtc(simTime)}</div>
         {isRealData && <div className="real-badge">● TICK THẬT</div>}
-        {newsSpike && (
-          <div className="news-badge">
-            ⚡ TIN MẠNH{isRealData ? '' : ' — spread giãn rộng'}
-          </div>
-        )}
+        {newsSpike && <div className="news-badge" title="Tin mạnh" />}
       </div>
 
       <div className="topbar-right">

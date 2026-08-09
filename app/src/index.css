@@ -81,19 +81,16 @@ body {
 }
 
 .news-badge {
-  background: #4a2a0f;
-  color: #ffb84d;
-  border: 1px solid #7a4a1a;
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 700;
-  animation: news-pulse 1s ease-in-out infinite;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: news-pulse 0.6s step-start infinite;
 }
 
 @keyframes news-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
 .news-select {
