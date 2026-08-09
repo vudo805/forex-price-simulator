@@ -59,6 +59,17 @@ function toLwc(points: IndicatorPoint[]) {
   return points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }))
 }
 
+function formatCountdown(remainingSec: number) {
+  const s = Math.max(0, Math.ceil(remainingSec))
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return `${h}:${pad(m)}:${pad(s % 60)}`
+  }
+  return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`
+}
+
 export default function PriceChart({ engine, positions }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -69,6 +80,11 @@ export default function PriceChart({ engine, positions }: Props) {
   const priceLinesRef = useRef<Map<number, ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>>>(
     new Map(),
   )
+  const priceLabelRef = useRef<HTMLDivElement>(null)
+  const priceLabelPriceRef = useRef<HTMLDivElement>(null)
+  const priceLabelTimeRef = useRef<HTMLDivElement>(null)
+  const priceLineRef = useRef<HTMLDivElement>(null)
+  const lastBarCloseSecRef = useRef(0)
   const [timeframe, setTimeframe] = useState<Timeframe>('M1')
   const timeframeRef = useRef(timeframe)
   timeframeRef.current = timeframe
@@ -109,6 +125,35 @@ export default function PriceChart({ engine, positions }: Props) {
     chart.timeScale().applyOptions({ barSpacing: next })
   }
 
+  // Custom current-price line + label (price on top, countdown to this bar's
+  // close below) — replaces lightweight-charts' own last-price label, which
+  // has no way to show a second line of text.
+  const updatePriceIndicator = (barCloseSec: number) => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const bar = displayedRef.current[displayedRef.current.length - 1]
+    if (!chart || !series || !bar) return
+    if (!priceLabelRef.current || !priceLineRef.current || !priceLabelPriceRef.current || !priceLabelTimeRef.current) return
+
+    const y = series.priceToCoordinate(bar.close)
+    if (y == null) return
+    const axisWidth = chart.priceScale('right').width()
+    const remainingSec = barCloseSec - engine.getSimTime() / 1000
+    const bullish = bar.close >= bar.open
+
+    priceLineRef.current.style.display = 'block'
+    priceLineRef.current.style.top = `${y}px`
+    priceLineRef.current.style.right = `${axisWidth}px`
+    priceLineRef.current.style.borderTopColor = bullish ? '#26a69a' : '#ef5350'
+
+    priceLabelRef.current.style.display = 'flex'
+    priceLabelRef.current.style.top = `${y}px`
+    priceLabelRef.current.style.width = `${Math.max(axisWidth, 1)}px`
+    priceLabelRef.current.style.background = bullish ? '#26a69a' : '#ef5350'
+    priceLabelPriceRef.current.textContent = bar.close.toFixed(2)
+    priceLabelTimeRef.current.textContent = formatCountdown(remainingSec)
+  }
+
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
@@ -132,6 +177,9 @@ export default function PriceChart({ engine, positions }: Props) {
       borderVisible: false,
       wickUpColor: '#26a69a',
       wickDownColor: '#ef5350',
+      // replaced by our own price+countdown-to-close label below
+      priceLineVisible: false,
+      lastValueVisible: false,
     })
     const vwapSeries = chart.addLineSeries({
       color: '#e8c94a',
@@ -150,6 +198,7 @@ export default function PriceChart({ engine, positions }: Props) {
         width: containerRef.current.clientWidth,
         height: containerRef.current.clientHeight,
       })
+      updatePriceIndicator(lastBarCloseSecRef.current)
     }
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -166,6 +215,11 @@ export default function PriceChart({ engine, positions }: Props) {
       series.priceScale().applyOptions({ autoScale: true })
       chart.timeScale().fitContent()
       recomputeIndicators(true)
+      const lastBar = agg[agg.length - 1]
+      if (lastBar) {
+        lastBarCloseSecRef.current = lastBar.time + tfSec
+        updatePriceIndicator(lastBarCloseSecRef.current)
+      }
     }
 
     const offReset = engine.onReset(applyReset)
@@ -184,6 +238,8 @@ export default function PriceChart({ engine, positions }: Props) {
       const cur = arr[arr.length - 1]
       series.update({ ...cur, time: cur.time as UTCTimestamp })
       recomputeIndicators(false)
+      lastBarCloseSecRef.current = bStart + tfSec
+      updatePriceIndicator(lastBarCloseSecRef.current)
     })
 
     return () => {
@@ -207,6 +263,11 @@ export default function PriceChart({ engine, positions }: Props) {
     series.priceScale().applyOptions({ autoScale: true })
     chart.timeScale().fitContent()
     recomputeIndicators(true)
+    const lastBar = agg[agg.length - 1]
+    if (lastBar) {
+      lastBarCloseSecRef.current = lastBar.time + tfSec
+      updatePriceIndicator(lastBarCloseSecRef.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe])
 
@@ -284,6 +345,11 @@ export default function PriceChart({ engine, positions }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
       <div style={{ position: 'relative', flex: '1 1 auto', minHeight: 0 }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <div ref={priceLineRef} className="current-price-line" style={{ display: 'none' }} />
+        <div ref={priceLabelRef} className="current-price-label" style={{ display: 'none' }}>
+          <div ref={priceLabelPriceRef} className="current-price-value" />
+          <div ref={priceLabelTimeRef} className="current-price-countdown" />
+        </div>
         <div className="chart-tf-controls">
           {TIMEFRAMES.map((tf) => (
             <button
