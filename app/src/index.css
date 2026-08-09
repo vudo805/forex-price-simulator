@@ -206,6 +206,18 @@ body {
   gap: 6px;
 }
 
+.chart-clock {
+  background: rgba(20, 23, 29, 0.85);
+  border: 1px solid #2a2f3a;
+  color: #c7ccd6;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .chart-zoom-controls {
   display: flex;
   flex-direction: column;

@@ -70,6 +70,12 @@ function formatCountdown(remainingSec: number) {
   return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`
 }
 
+function formatHMS(ms: number) {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+}
+
 export default function PriceChart({ engine, positions }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -84,6 +90,7 @@ export default function PriceChart({ engine, positions }: Props) {
   const priceLabelPriceRef = useRef<HTMLDivElement>(null)
   const priceLabelTimeRef = useRef<HTMLDivElement>(null)
   const priceLineRef = useRef<HTMLDivElement>(null)
+  const clockRef = useRef<HTMLDivElement>(null)
   const lastBarCloseSecRef = useRef(0)
   const [timeframe, setTimeframe] = useState<Timeframe>('M1')
   const timeframeRef = useRef(timeframe)
@@ -129,6 +136,8 @@ export default function PriceChart({ engine, positions }: Props) {
   // close below) — replaces lightweight-charts' own last-price label, which
   // has no way to show a second line of text.
   const updatePriceIndicator = (barCloseSec: number) => {
+    if (clockRef.current) clockRef.current.textContent = formatHMS(engine.getSimTime())
+
     const chart = chartRef.current
     const series = seriesRef.current
     const bar = displayedRef.current[displayedRef.current.length - 1]
@@ -362,6 +371,7 @@ export default function PriceChart({ engine, positions }: Props) {
           ))}
         </div>
         <div className="chart-top-right-controls">
+          <div ref={clockRef} className="chart-clock" />
           <IndicatorMenu
             state={indicatorState}
             onToggle={(id) =>
