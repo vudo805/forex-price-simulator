@@ -373,6 +373,9 @@ body {
 .sltp-drag-tp {
   --sltp-color: #26a69a;
 }
+.sltp-drag-trigger {
+  --sltp-color: #4a90e2;
+}
 /* the actual drag target — a visible box sitting on the right end of the
    dashed line, easier to grab reliably than the 1px line itself */
 .sltp-drag-handle {
@@ -542,6 +545,33 @@ body {
 }
 
 /* Order ticket */
+.order-type-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.draft-info {
+  background: #1b1f27;
+  border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.draft-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.draft-info .hint {
+  margin-left: 0;
+  margin-top: 4px;
+  display: block;
+}
+
 .lot-row {
   display: flex;
   justify-content: space-between;

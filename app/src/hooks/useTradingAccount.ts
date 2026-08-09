@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PriceEngine } from '../engine/priceEngine'
-import type { ClosedTrade, Position, Side } from '../types'
+import type { ClosedTrade, OrderKind, PendingOrder, Position, Side } from '../types'
 import { SYMBOL_MAP, type SymbolId } from '../symbols'
 
 export const STARTING_BALANCE = 10000
@@ -25,15 +25,27 @@ export function marginForLot(symbol: SymbolId, lot: number, price: number, lever
   return notionalUsd / leverage
 }
 
+/** A pending order fills once price trades through its trigger — stops chase a
+ *  breakout (buy above / sell below current price), limits wait for a pullback
+ *  (buy below / sell above current price). */
+function pendingOrderHit(o: PendingOrder, bid: number, ask: number): boolean {
+  if (o.side === 'buy') {
+    return o.kind === 'stop' ? ask >= o.triggerPrice : ask <= o.triggerPrice
+  }
+  return o.kind === 'stop' ? bid <= o.triggerPrice : bid >= o.triggerPrice
+}
+
 export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
   const [balance, setBalance] = useState(STARTING_BALANCE)
   const [leverage, setLeverage] = useState<Leverage>(500)
   const [positions, setPositions] = useState<Position[]>([])
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([])
   const [history, setHistory] = useState<ClosedTrade[]>([])
   const [price, setPrice] = useState({ bid: 0, ask: 0, mid: 0, newsSpike: false, isRealData: false })
   const [stopOutAlert, setStopOutAlert] = useState<string | null>(null)
 
   const positionsRef = useRef<Position[]>([])
+  const pendingOrdersRef = useRef<PendingOrder[]>([])
   // last known bid/ask per symbol — only the currently active symbol gets fresh
   // ticks, so positions opened under a different symbol keep marking-to-market
   // at whatever price that symbol last showed until it's active again
@@ -52,6 +64,9 @@ export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
   useEffect(() => {
     positionsRef.current = positions
   }, [positions])
+  useEffect(() => {
+    pendingOrdersRef.current = pendingOrders
+  }, [pendingOrders])
   useEffect(() => {
     balanceRef.current = balance
   }, [balance])
@@ -103,15 +118,80 @@ export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
     [engine],
   )
 
+  const placePendingOrder = useCallback(
+    (side: Side, kind: OrderKind, lot: number, triggerPrice: number, sl: number | null, tp: number | null) => {
+      const order: PendingOrder = {
+        id: nextId.current++,
+        symbol: activeSymbolRef.current,
+        side,
+        kind,
+        lot,
+        triggerPrice,
+        sl,
+        tp,
+        createdTime: engine.getSimTime(),
+      }
+      pendingOrdersRef.current = [...pendingOrdersRef.current, order]
+      setPendingOrders(pendingOrdersRef.current)
+    },
+    [engine],
+  )
+
+  const cancelPendingOrder = useCallback((id: number) => {
+    pendingOrdersRef.current = pendingOrdersRef.current.filter((o) => o.id !== id)
+    setPendingOrders(pendingOrdersRef.current)
+  }, [])
+
+  const updatePendingTrigger = useCallback((id: number, triggerPrice: number) => {
+    pendingOrdersRef.current = pendingOrdersRef.current.map((o) =>
+      o.id === id ? { ...o, triggerPrice } : o,
+    )
+    setPendingOrders(pendingOrdersRef.current)
+  }, [])
+
+  // shared by both open positions and pending orders — the id namespace is a
+  // single counter, so looking in one list then the other is unambiguous
   const updateSlTp = useCallback((id: number, sl: number | null, tp: number | null) => {
-    positionsRef.current = positionsRef.current.map((p) => (p.id === id ? { ...p, sl, tp } : p))
-    setPositions(positionsRef.current)
+    if (positionsRef.current.some((p) => p.id === id)) {
+      positionsRef.current = positionsRef.current.map((p) => (p.id === id ? { ...p, sl, tp } : p))
+      setPositions(positionsRef.current)
+      return
+    }
+    if (pendingOrdersRef.current.some((o) => o.id === id)) {
+      pendingOrdersRef.current = pendingOrdersRef.current.map((o) => (o.id === id ? { ...o, sl, tp } : o))
+      setPendingOrders(pendingOrdersRef.current)
+    }
   }, [])
 
   useEffect(() => {
     const off = engine.onTick(({ bid, ask, mid, newsSpike, isRealData }) => {
       const symbol = activeSymbolRef.current
       priceBySymbolRef.current[symbol] = { bid, ask }
+
+      // pending orders for the live symbol — fill at the trigger price (no
+      // slippage modeled) and hand the id straight to the new position
+      let pendingChanged = false
+      let positionsChanged = false
+      for (const o of pendingOrdersRef.current) {
+        if (o.symbol !== symbol) continue
+        if (!pendingOrderHit(o, bid, ask)) continue
+        const pos: Position = {
+          id: o.id,
+          symbol: o.symbol,
+          side: o.side,
+          lot: o.lot,
+          openPrice: o.triggerPrice,
+          openTime: engine.getSimTime(),
+          sl: o.sl,
+          tp: o.tp,
+        }
+        positionsRef.current = [...positionsRef.current, pos]
+        pendingOrdersRef.current = pendingOrdersRef.current.filter((p) => p.id !== o.id)
+        positionsChanged = true
+        pendingChanged = true
+      }
+      if (pendingChanged) setPendingOrders(pendingOrdersRef.current)
+      if (positionsChanged) setPositions(positionsRef.current)
 
       // SL/TP checks every tick — only meaningful for positions in the symbol
       // that's actually receiving live ticks right now
@@ -179,6 +259,8 @@ export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
     setBalance(newBalance)
     positionsRef.current = []
     setPositions([])
+    pendingOrdersRef.current = []
+    setPendingOrders([])
     setHistory([])
     setStopOutAlert(null)
   }, [])
@@ -193,11 +275,15 @@ export function useTradingAccount(engine: PriceEngine, activeSymbol: SymbolId) {
     leverage,
     setLeverage,
     positions,
+    pendingOrders,
     history,
     price,
     priceBySymbol: priceBySymbolRef.current,
     openPosition,
     closePosition,
+    placePendingOrder,
+    cancelPendingOrder,
+    updatePendingTrigger,
     updateSlTp,
     resetAccount,
     stopOutAlert,

@@ -1,13 +1,15 @@
-import type { ClosedTrade, Position } from '../types'
+import type { ClosedTrade, PendingOrder, Position } from '../types'
 import { positionPnl, type PriceQuote } from '../hooks/useTradingAccount'
 import { formatPrice, type SymbolId } from '../symbols'
 import { formatUtcShort } from '../utils/time'
 
 type Props = {
   positions: Position[]
+  pendingOrders: PendingOrder[]
   history: ClosedTrade[]
   priceBySymbol: Partial<Record<SymbolId, PriceQuote>>
   onClose: (id: number) => void
+  onCancelPending: (id: number) => void
 }
 
 const fmtTime = formatUtcShort
@@ -19,7 +21,14 @@ const REASON_LABEL: Record<ClosedTrade['reason'], string> = {
   stopout: 'Stop out',
 }
 
-export default function PositionsPanel({ positions, history, priceBySymbol, onClose }: Props) {
+export default function PositionsPanel({
+  positions,
+  pendingOrders,
+  history,
+  priceBySymbol,
+  onClose,
+  onCancelPending,
+}: Props) {
   return (
     <div className="panel positions-panel">
       <div className="panel-title">Lệnh đang mở ({positions.length})</div>
@@ -69,6 +78,51 @@ export default function PositionsPanel({ positions, history, priceBySymbol, onCl
               <tr>
                 <td colSpan={8} className="empty">
                   Chưa có lệnh nào
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="panel-title">Lệnh chờ ({pendingOrders.length})</div>
+      <div className="table-wrap">
+        <table className="pos-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Loại</th>
+              <th>Lot</th>
+              <th>Giá đặt</th>
+              <th>SL/TP</th>
+              <th>Thời gian</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {pendingOrders.map((o) => (
+              <tr key={o.id}>
+                <td>{o.symbol}</td>
+                <td className={o.side === 'buy' ? 'side-buy' : 'side-sell'}>
+                  {o.side === 'buy' ? 'MUA' : 'BÁN'} {o.kind.toUpperCase()}
+                </td>
+                <td>{o.lot.toFixed(2)}</td>
+                <td>{formatPrice(o.triggerPrice, o.symbol)}</td>
+                <td className="small">
+                  {o.sl ? formatPrice(o.sl, o.symbol) : '—'} / {o.tp ? formatPrice(o.tp, o.symbol) : '—'}
+                </td>
+                <td className="small">{fmtTime(o.createdTime)}</td>
+                <td>
+                  <button className="btn btn-secondary btn-tiny" onClick={() => onCancelPending(o.id)}>
+                    Huỷ
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!pendingOrders.length && (
+              <tr>
+                <td colSpan={7} className="empty">
+                  Chưa có lệnh chờ
                 </td>
               </tr>
             )}

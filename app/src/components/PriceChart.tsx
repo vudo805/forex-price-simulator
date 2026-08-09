@@ -7,7 +7,8 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts'
 import type { PriceEngine, Candle } from '../engine/priceEngine'
-import type { Position } from '../types'
+import type { DraftOrder, OrderKind, PendingOrder, Position, Side } from '../types'
+import { DRAFT_ORDER_ID } from '../types'
 import { vwap, rsi, atr, type IndicatorPoint } from '../indicators/compute'
 import { INDICATOR_DEFS, defaultIndicatorState, type IndicatorState } from '../indicators/types'
 import OscillatorPane, { type OscillatorHandle } from './OscillatorPane'
@@ -18,7 +19,23 @@ type Props = {
   engine: PriceEngine
   symbol: SymbolId
   positions: Position[]
-  onUpdateSlTp: (id: number, sl: number | null, tp: number | null) => void
+  pendingOrders: PendingOrder[]
+  draft: DraftOrder
+  onOrderLineChange: (id: number, kind: 'sl' | 'tp' | 'trigger', price: number) => void
+}
+
+type OrderLineKind = 'sl' | 'tp' | 'trigger'
+
+/** Unifies filled positions, pending stop/limit orders, and the in-progress
+ *  draft into one shape so the SL/TP (and, for pending/draft, trigger) drag
+ *  handles can be rendered/updated with a single code path. */
+type OrderLineTarget = {
+  id: number
+  side: Side
+  anchorPrice: number // position entry, or pending/draft trigger price
+  sl: number | null
+  tp: number | null
+  orderKind?: OrderKind // present only for pending/draft — used to label the trigger handle
 }
 
 type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1'
@@ -79,7 +96,7 @@ function formatHMS(ms: number) {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 }
 
-export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: Props) {
+export default function PriceChart({ engine, symbol, positions, pendingOrders, draft, onOrderLineChange }: Props) {
   const pricePrecision = SYMBOL_MAP[symbol].pricePrecision
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -96,11 +113,42 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
   const priceLineRef = useRef<HTMLDivElement>(null)
   const clockRef = useRef<HTMLDivElement>(null)
   const lastBarCloseSecRef = useRef(0)
-  const slTpLineRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  const slTpLabelRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  const positionsRef = useRef<Position[]>(positions)
-  positionsRef.current = positions
-  const draggingRef = useRef<{ posId: number; kind: 'sl' | 'tp'; price: number } | null>(null)
+  const orderLineRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const orderHandleRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const orderLineTargets: OrderLineTarget[] = [
+    ...positions.filter((p) => p.symbol === symbol).map((p) => ({
+      id: p.id,
+      side: p.side,
+      anchorPrice: p.openPrice,
+      sl: p.sl,
+      tp: p.tp,
+    })),
+    ...pendingOrders.filter((o) => o.symbol === symbol).map((o) => ({
+      id: o.id,
+      side: o.side,
+      anchorPrice: o.triggerPrice,
+      sl: o.sl,
+      tp: o.tp,
+      orderKind: o.kind,
+    })),
+    ...(draft
+      ? [
+          {
+            id: DRAFT_ORDER_ID,
+            side: draft.side,
+            anchorPrice: draft.price,
+            sl: draft.sl,
+            tp: draft.tp,
+            orderKind: draft.kind,
+          },
+        ]
+      : []),
+  ]
+  const orderLineTargetsRef = useRef<OrderLineTarget[]>(orderLineTargets)
+  orderLineTargetsRef.current = orderLineTargets
+
+  const draggingRef = useRef<{ id: number; kind: OrderLineKind; price: number } | null>(null)
   const [timeframe, setTimeframe] = useState<Timeframe>('M1')
   const timeframeRef = useRef(timeframe)
   timeframeRef.current = timeframe
@@ -172,59 +220,72 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
     priceLabelTimeRef.current.textContent = formatCountdown(remainingSec)
   }
 
-  // Draggable SL/TP lines, rendered as DOM overlays (like the price label above)
-  // rather than lightweight-charts' native price lines, which have no drag support.
-  // Every open position always gets both handles, even before SL/TP is set — an
-  // unset one shows as a dim "+ SL"/"+ TP" ghost sitting just off the entry line,
-  // ready to be dragged out to actually set it.
+  // Draggable SL/TP/trigger lines, rendered as DOM overlays (like the price label
+  // above) rather than lightweight-charts' native price lines, which have no drag
+  // support. Every position/pending-order/draft always gets SL+TP handles, even
+  // before set — an unset one shows as a dim "+ SL"/"+ TP" ghost sitting just off
+  // the anchor price, ready to be dragged out. Pending orders and the draft also
+  // get a "trigger" handle (always solid, since it always has a real price).
   const GHOST_OFFSET_PX = 26
 
-  const updateSlTpLines = () => {
+  const updateOrderLines = () => {
     const series = seriesRef.current
     if (!series) return
     const dragging = draggingRef.current
-    positionsRef.current
-      .filter((p) => p.symbol === symbol)
-      .forEach((p) => {
-        const entryY = series.priceToCoordinate(p.openPrice)
-        const dir = p.side === 'buy' ? 1 : -1
-        ;(['sl', 'tp'] as const).forEach((kind) => {
-          const key = `${p.id}-${kind}`
-          const el = slTpLineRefs.current.get(key)
-          const label = slTpLabelRefs.current.get(key)
-          if (!el || !label) return
-          // don't fight the user's own in-progress drag with a stale reposition
-          if (dragging && dragging.posId === p.id && dragging.kind === kind) return
-          const price = kind === 'sl' ? p.sl : p.tp
-          const isSet = price != null
+    orderLineTargetsRef.current.forEach((t) => {
+      const anchorY = series.priceToCoordinate(t.anchorPrice)
+      const dir = t.side === 'buy' ? 1 : -1
+      const kinds: OrderLineKind[] = t.orderKind ? ['sl', 'tp', 'trigger'] : ['sl', 'tp']
+      kinds.forEach((kind) => {
+        const key = `${t.id}-${kind}`
+        const el = orderLineRefs.current.get(key)
+        const label = orderHandleRefs.current.get(key)
+        if (!el || !label) return
+        // don't fight the user's own in-progress drag with a stale reposition
+        if (dragging && dragging.id === t.id && dragging.kind === kind) return
 
-          let y: number | null
-          if (isSet) {
-            y = series.priceToCoordinate(price)
-          } else if (entryY != null) {
-            const offset = kind === 'sl' ? dir * GHOST_OFFSET_PX : -dir * GHOST_OFFSET_PX
-            y = entryY + offset
-          } else {
-            y = null
-          }
-          if (y == null) {
-            el.style.display = 'none'
-            return
-          }
-          el.style.display = 'block'
-          el.style.top = `${y}px`
-          el.classList.toggle('sltp-drag-ghost', !isSet)
+        let price: number | null
+        let isSet: boolean
+        if (kind === 'trigger') {
+          price = t.anchorPrice
+          isSet = true
+        } else {
+          price = kind === 'sl' ? t.sl : t.tp
+          isSet = price != null
+        }
+
+        let y: number | null
+        if (isSet && price != null) {
+          y = series.priceToCoordinate(price)
+        } else if (anchorY != null) {
+          const offset = kind === 'sl' ? dir * GHOST_OFFSET_PX : -dir * GHOST_OFFSET_PX
+          y = anchorY + offset
+        } else {
+          y = null
+        }
+        if (y == null) {
+          el.style.display = 'none'
+          return
+        }
+        el.style.display = 'block'
+        el.style.top = `${y}px`
+        el.classList.toggle('sltp-drag-ghost', !isSet)
+        if (kind === 'trigger') {
+          const sideLabel = t.side === 'buy' ? 'MUA' : 'BÁN'
+          label.textContent = `${sideLabel} ${t.orderKind!.toUpperCase()} ${t.anchorPrice.toFixed(pricePrecision)}`
+        } else {
           label.textContent = isSet
-            ? `${kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+            ? `${kind.toUpperCase()} ${price!.toFixed(pricePrecision)}`
             : `+ ${kind.toUpperCase()}`
-        })
+        }
       })
+    })
   }
 
-  const startSlTpDrag = (
+  const startOrderLineDrag = (
     e: ReactPointerEvent<HTMLDivElement>,
-    posId: number,
-    kind: 'sl' | 'tp',
+    id: number,
+    kind: OrderLineKind,
     initialPrice: number,
   ) => {
     e.preventDefault()
@@ -232,7 +293,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
     const container = containerRef.current
     const series = seriesRef.current
     if (!container || !series) return
-    draggingRef.current = { posId, kind, price: initialPrice }
+    draggingRef.current = { id, kind, price: initialPrice }
 
     const onMove = (ev: PointerEvent) => {
       const drag = draggingRef.current
@@ -242,15 +303,23 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
       const price = series.coordinateToPrice(y)
       if (price == null) return
       drag.price = price
-      const key = `${drag.posId}-${drag.kind}`
-      const el = slTpLineRefs.current.get(key)
-      const label = slTpLabelRefs.current.get(key)
+      const key = `${drag.id}-${drag.kind}`
+      const el = orderLineRefs.current.get(key)
+      const label = orderHandleRefs.current.get(key)
       if (el) {
         el.style.display = 'block'
         el.style.top = `${y}px`
         el.classList.remove('sltp-drag-ghost')
       }
-      if (label) label.textContent = `${drag.kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+      if (label) {
+        const target = orderLineTargetsRef.current.find((t) => t.id === drag.id)
+        if (drag.kind === 'trigger' && target?.orderKind) {
+          const sideLabel = target.side === 'buy' ? 'MUA' : 'BÁN'
+          label.textContent = `${sideLabel} ${target.orderKind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+        } else {
+          label.textContent = `${drag.kind.toUpperCase()} ${price.toFixed(pricePrecision)}`
+        }
+      }
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
@@ -258,11 +327,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
       const drag = draggingRef.current
       draggingRef.current = null
       if (!drag) return
-      const pos = positionsRef.current.find((p) => p.id === drag.posId)
-      if (!pos) return
-      const newSl = drag.kind === 'sl' ? drag.price : pos.sl
-      const newTp = drag.kind === 'tp' ? drag.price : pos.tp
-      onUpdateSlTp(drag.posId, newSl, newTp)
+      onOrderLineChange(drag.id, drag.kind, drag.price)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -313,7 +378,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
         height: containerRef.current.clientHeight,
       })
       updatePriceIndicator(lastBarCloseSecRef.current)
-      updateSlTpLines()
+      updateOrderLines()
     }
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -334,7 +399,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
       if (lastBar) {
         lastBarCloseSecRef.current = lastBar.time + tfSec
         updatePriceIndicator(lastBarCloseSecRef.current)
-        updateSlTpLines()
+        updateOrderLines()
       }
     }
 
@@ -356,7 +421,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
       recomputeIndicators(false)
       lastBarCloseSecRef.current = bStart + tfSec
       updatePriceIndicator(lastBarCloseSecRef.current)
-      updateSlTpLines()
+      updateOrderLines()
     })
 
     return () => {
@@ -384,7 +449,7 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
     if (lastBar) {
       lastBarCloseSecRef.current = lastBar.time + tfSec
       updatePriceIndicator(lastBarCloseSecRef.current)
-      updateSlTpLines()
+      updateOrderLines()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe])
@@ -437,13 +502,13 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
     })
   }, [positions, symbol])
 
-  // reposition the draggable SL/TP DOM overlays whenever positions or the
-  // active symbol change (dragging itself keeps them in sync during the drag,
-  // and the tick-driven update sites above keep them in sync with price/zoom)
+  // reposition the draggable SL/TP/trigger DOM overlays whenever the underlying
+  // orders change (dragging itself keeps them in sync during the drag, and the
+  // tick-driven update sites above keep them in sync with price/zoom)
   useEffect(() => {
-    updateSlTpLines()
+    updateOrderLines()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positions, symbol])
+  }, [positions, pendingOrders, draft, symbol])
 
   const rsiDef = INDICATOR_DEFS.find((d) => d.id === 'rsi')!
   const atrDef = INDICATOR_DEFS.find((d) => d.id === 'atr')!
@@ -457,34 +522,33 @@ export default function PriceChart({ engine, symbol, positions, onUpdateSlTp }: 
           <div ref={priceLabelPriceRef} className="current-price-value" />
           <div ref={priceLabelTimeRef} className="current-price-countdown" />
         </div>
-        {positions
-          .filter((p) => p.symbol === symbol)
-          .flatMap((p) =>
-            (['sl', 'tp'] as const).map((kind) => {
-              const key = `${p.id}-${kind}`
-              const price = kind === 'sl' ? p.sl : p.tp
-              return (
+        {orderLineTargets.flatMap((t) => {
+          const kinds: OrderLineKind[] = t.orderKind ? ['sl', 'tp', 'trigger'] : ['sl', 'tp']
+          return kinds.map((kind) => {
+            const key = `${t.id}-${kind}`
+            const initialPrice = kind === 'trigger' ? t.anchorPrice : (kind === 'sl' ? t.sl : t.tp) ?? t.anchorPrice
+            return (
+              <div
+                key={key}
+                ref={(el) => {
+                  if (el) orderLineRefs.current.set(key, el)
+                  else orderLineRefs.current.delete(key)
+                }}
+                className={`sltp-drag-line sltp-drag-${kind}`}
+                style={{ display: 'none' }}
+              >
                 <div
-                  key={key}
+                  className="sltp-drag-handle"
                   ref={(el) => {
-                    if (el) slTpLineRefs.current.set(key, el)
-                    else slTpLineRefs.current.delete(key)
+                    if (el) orderHandleRefs.current.set(key, el)
+                    else orderHandleRefs.current.delete(key)
                   }}
-                  className={`sltp-drag-line sltp-drag-${kind}`}
-                  style={{ display: 'none' }}
-                >
-                  <div
-                    className="sltp-drag-handle"
-                    ref={(el) => {
-                      if (el) slTpLabelRefs.current.set(key, el)
-                      else slTpLabelRefs.current.delete(key)
-                    }}
-                    onPointerDown={(e) => startSlTpDrag(e, p.id, kind, price ?? p.openPrice)}
-                  />
-                </div>
-              )
-            }),
-          )}
+                  onPointerDown={(e) => startOrderLineDrag(e, t.id, kind, initialPrice)}
+                />
+              </div>
+            )
+          })
+        })}
         <div className="chart-tf-controls">
           {TIMEFRAMES.map((tf) => (
             <button

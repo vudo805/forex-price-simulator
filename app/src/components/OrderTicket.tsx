@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Side } from '../types'
+import type { DraftOrder, OrderKind, Side } from '../types'
 import { marginForLot, type Leverage } from '../hooks/useTradingAccount'
 import { SYMBOL_MAP, formatPrice, type SymbolId } from '../symbols'
 
@@ -9,14 +9,36 @@ type Props = {
   ask: number
   leverage: Leverage
   freeMargin: number
+  draft: DraftOrder
   onOrder: (side: Side, lot: number, sl: number | null, tp: number | null) => void
+  onStartDraft: (side: Side, kind: OrderKind, lot: number) => void
+  onConfirmDraft: () => void
+  onCancelDraft: () => void
 }
 
 const LOT_STEP = 0.01
 const LOT_PRESETS = [0.01, 0.1, 1]
 
-export default function OrderTicket({ symbol, bid, ask, leverage, freeMargin, onOrder }: Props) {
+const ORDER_TYPES: { value: 'market' | OrderKind; label: string }[] = [
+  { value: 'market', label: 'Market' },
+  { value: 'stop', label: 'Stop' },
+  { value: 'limit', label: 'Limit' },
+]
+
+export default function OrderTicket({
+  symbol,
+  bid,
+  ask,
+  leverage,
+  freeMargin,
+  draft,
+  onOrder,
+  onStartDraft,
+  onConfirmDraft,
+  onCancelDraft,
+}: Props) {
   const [lot, setLot] = useState(0.1)
+  const [orderType, setOrderType] = useState<'market' | OrderKind>('market')
   const [useSlTp, setUseSlTp] = useState(false)
   const [sl, setSl] = useState('')
   const [tp, setTp] = useState('')
@@ -31,12 +53,29 @@ export default function OrderTicket({ symbol, bid, ask, leverage, freeMargin, on
 
   const submit = (side: Side) => {
     if (!canTrade) return
-    onOrder(side, lot, parsedSl, parsedTp)
+    if (orderType === 'market') {
+      onOrder(side, lot, parsedSl, parsedTp)
+    } else {
+      onStartDraft(side, orderType, lot)
+    }
   }
 
   return (
     <div className="panel order-panel">
       <div className="panel-title">Đặt lệnh</div>
+
+      <div className="order-type-row">
+        {ORDER_TYPES.map((t) => (
+          <button
+            key={t.value}
+            className={`chip ${orderType === t.value ? 'chip-active' : ''}`}
+            disabled={!!draft}
+            onClick={() => setOrderType(t.value)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       <div className="lot-row">
         <span>Khối lượng (lot)</span>
@@ -67,27 +106,31 @@ export default function OrderTicket({ symbol, bid, ask, leverage, freeMargin, on
         <span className="hint">{SYMBOL_MAP[symbol].lotHint}</span>
       </div>
 
-      <label className="sltp-toggle">
-        <input type="checkbox" checked={useSlTp} onChange={(e) => setUseSlTp(e.target.checked)} />
-        Đặt Stop Loss / Take Profit
-      </label>
-      {useSlTp && (
-        <div className="sltp-row">
-          <input
-            className="sltp-input"
-            type="number"
-            placeholder="SL"
-            value={sl}
-            onChange={(e) => setSl(e.target.value)}
-          />
-          <input
-            className="sltp-input"
-            type="number"
-            placeholder="TP"
-            value={tp}
-            onChange={(e) => setTp(e.target.value)}
-          />
-        </div>
+      {orderType === 'market' && (
+        <>
+          <label className="sltp-toggle">
+            <input type="checkbox" checked={useSlTp} onChange={(e) => setUseSlTp(e.target.checked)} />
+            Đặt Stop Loss / Take Profit
+          </label>
+          {useSlTp && (
+            <div className="sltp-row">
+              <input
+                className="sltp-input"
+                type="number"
+                placeholder="SL"
+                value={sl}
+                onChange={(e) => setSl(e.target.value)}
+              />
+              <input
+                className="sltp-input"
+                type="number"
+                placeholder="TP"
+                value={tp}
+                onChange={(e) => setTp(e.target.value)}
+              />
+            </div>
+          )}
+        </>
       )}
 
       <div className="margin-est">
@@ -95,16 +138,49 @@ export default function OrderTicket({ symbol, bid, ask, leverage, freeMargin, on
         {estMargin > freeMargin && <span className="pnl-neg"> — vượt ký quỹ khả dụng</span>}
       </div>
 
-      <div className="order-buttons">
-        <button className="btn btn-sell" disabled={!canTrade} onClick={() => submit('sell')}>
-          BÁN
-          <span className="order-price">{formatPrice(bid, symbol)}</span>
-        </button>
-        <button className="btn btn-buy" disabled={!canTrade} onClick={() => submit('buy')}>
-          MUA
-          <span className="order-price">{formatPrice(ask, symbol)}</span>
-        </button>
-      </div>
+      {draft ? (
+        <>
+          <div className="draft-info">
+            <div className="draft-info-row">
+              <span>Lệnh</span>
+              <b>
+                {draft.side === 'buy' ? 'MUA' : 'BÁN'} {draft.kind.toUpperCase()}
+              </b>
+            </div>
+            <div className="draft-info-row">
+              <span>Giá vào</span>
+              <b>{formatPrice(draft.price, symbol)}</b>
+            </div>
+            <div className="draft-info-row">
+              <span>SL / TP</span>
+              <b>
+                {draft.sl != null ? formatPrice(draft.sl, symbol) : '—'} /{' '}
+                {draft.tp != null ? formatPrice(draft.tp, symbol) : '—'}
+              </b>
+            </div>
+            <div className="hint">Kéo đường trên chart để chỉnh giá vào lệnh và SL/TP</div>
+          </div>
+          <div className="order-buttons">
+            <button className="btn btn-secondary" onClick={onCancelDraft}>
+              Huỷ
+            </button>
+            <button className="btn btn-buy" onClick={onConfirmDraft}>
+              Xác nhận đặt lệnh
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="order-buttons">
+          <button className="btn btn-sell" disabled={!canTrade} onClick={() => submit('sell')}>
+            {orderType === 'market' ? 'BÁN' : `${orderType.toUpperCase()} BÁN`}
+            {orderType === 'market' && <span className="order-price">{formatPrice(bid, symbol)}</span>}
+          </button>
+          <button className="btn btn-buy" disabled={!canTrade} onClick={() => submit('buy')}>
+            {orderType === 'market' ? 'MUA' : `${orderType.toUpperCase()} MUA`}
+            {orderType === 'market' && <span className="order-price">{formatPrice(ask, symbol)}</span>}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PriceEngine } from './engine/priceEngine'
 import { loadSymbolBars } from './data'
-import type { Speed } from './types'
+import type { DraftOrder, OrderKind, Side, Speed } from './types'
+import { DRAFT_ORDER_ID } from './types'
 import { useTradingAccount } from './hooks/useTradingAccount'
 import { SYMBOL_MAP, type SymbolId } from './symbols'
 import TopBar from './components/TopBar'
@@ -18,6 +19,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<Speed>(300)
   const [range, setRange] = useState<[number, number] | null>(null)
+  const [draft, setDraft] = useState<DraftOrder>(null)
 
   const account = useTradingAccount(engine, symbol)
 
@@ -25,6 +27,7 @@ export default function App() {
     let cancelled = false
     setReady(false)
     setNoData(false)
+    setDraft(null)
     engine.pause()
     engine.setRealTicks(null)
     engine.setSpread(SYMBOL_MAP[symbol].defaultSpread)
@@ -83,6 +86,50 @@ export default function App() {
     engine.jumpTo(t)
   }
 
+  // Starts a pending-order draft: a default trigger price offset from the
+  // current market (away from it for a stop / toward it for a limit), shown
+  // on the chart as a draggable line the user fine-tunes before confirming.
+  const handleStartDraft = (side: Side, kind: OrderKind, lot: number) => {
+    const { bid, ask } = account.price
+    if (!bid || !ask) return
+    const ref = side === 'buy' ? ask : bid
+    const offset = ref * 0.001
+    const goesUp = (side === 'buy') === (kind === 'stop')
+    const price = goesUp ? ref + offset : ref - offset
+    setDraft({ side, kind, lot, price, sl: null, tp: null })
+  }
+
+  const handleConfirmDraft = () => {
+    if (!draft) return
+    account.placePendingOrder(draft.side, draft.kind, draft.lot, draft.price, draft.sl, draft.tp)
+    setDraft(null)
+  }
+
+  const handleCancelDraft = () => setDraft(null)
+
+  // Single entry point for every draggable line on the chart (SL/TP on a
+  // filled position, SL/TP on a pending order, or the draft's trigger/SL/TP).
+  const handleOrderLineChange = (id: number, kind: 'sl' | 'tp' | 'trigger', price: number) => {
+    if (id === DRAFT_ORDER_ID) {
+      setDraft((d) => {
+        if (!d) return d
+        if (kind === 'trigger') return { ...d, price }
+        if (kind === 'sl') return { ...d, sl: price }
+        return { ...d, tp: price }
+      })
+      return
+    }
+    if (kind === 'trigger') {
+      account.updatePendingTrigger(id, price)
+      return
+    }
+    const existing =
+      account.positions.find((p) => p.id === id) ?? account.pendingOrders.find((o) => o.id === id)
+    const newSl = kind === 'sl' ? price : (existing?.sl ?? null)
+    const newTp = kind === 'tp' ? price : (existing?.tp ?? null)
+    account.updateSlTp(id, newSl, newTp)
+  }
+
   return (
     <div className="app">
       <TopBar
@@ -121,7 +168,9 @@ export default function App() {
             engine={engine}
             symbol={symbol}
             positions={account.positions}
-            onUpdateSlTp={account.updateSlTp}
+            pendingOrders={account.pendingOrders}
+            draft={draft}
+            onOrderLineChange={handleOrderLineChange}
           />
         </div>
 
@@ -143,7 +192,11 @@ export default function App() {
             ask={account.price.ask}
             leverage={account.leverage}
             freeMargin={account.freeMargin}
+            draft={draft}
             onOrder={account.openPosition}
+            onStartDraft={handleStartDraft}
+            onConfirmDraft={handleConfirmDraft}
+            onCancelDraft={handleCancelDraft}
           />
         </div>
       </div>
@@ -151,9 +204,11 @@ export default function App() {
       <div className="bottom-panel">
         <PositionsPanel
           positions={account.positions}
+          pendingOrders={account.pendingOrders}
           history={account.history}
           priceBySymbol={account.priceBySymbol}
           onClose={(id) => account.closePosition(id, 'manual')}
+          onCancelPending={account.cancelPendingOrder}
         />
       </div>
     </div>

@@ -40,6 +40,33 @@ export type ClosedTrade = Position & {
   reason: 'manual' | 'sl' | 'tp' | 'stopout'
 }
 
+export type OrderKind = 'stop' | 'limit'
+
+export type PendingOrder = {
+  id: number
+  symbol: SymbolId
+  side: Side
+  kind: OrderKind
+  lot: number
+  triggerPrice: number
+  sl: number | null
+  tp: number | null
+  createdTime: number
+}
+
+// sentinel id for an order that's being placed but not yet confirmed — lives
+// only as local UI state (see App.tsx's `draft`), never in useTradingAccount
+export const DRAFT_ORDER_ID = -1
+
+export type DraftOrder = {
+  side: Side
+  kind: OrderKind
+  lot: number
+  price: number
+  sl: number | null
+  tp: number | null
+} | null
+
 export type Speed = 1 | 30 | 60 | 300 | 900 | 3600
 
 export type EngineSnapshot = {
