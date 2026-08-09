@@ -4,7 +4,7 @@ import type { ClosedTrade, Position, Side } from '../types'
 import { SYMBOL_MAP, type SymbolId } from '../symbols'
 
 export const STARTING_BALANCE = 10000
-const STOP_OUT_LEVEL = 50 // % margin level -> forced liquidation
+const STOP_OUT_LEVEL = 40 // % margin level -> forced liquidation
 
 export type Leverage = 500 | 1000
 export type PriceQuote = { bid: number; ask: number }
