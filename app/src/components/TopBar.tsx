@@ -24,6 +24,8 @@ type Props = {
 
 const SPEED_OPTIONS: { value: Speed; label: string }[] = [
   { value: 1, label: '1x (thời gian thực)' },
+  { value: 2, label: '2x' },
+  { value: 5, label: '5x' },
   { value: 30, label: '30x (chậm)' },
   { value: 60, label: '60x' },
   { value: 300, label: '300x (mặc định)' },

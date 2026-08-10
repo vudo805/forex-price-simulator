@@ -674,14 +674,36 @@ body {
   padding: 10px 14px;
 }
 
-.table-wrap {
-  overflow: auto;
-  max-height: 90px;
+.pos-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #1b1f27;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
-.history-wrap {
-  max-height: 90px;
+.pos-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #8a90a0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.pos-tab:hover {
+  color: #c7ccd6;
+}
+.pos-tab-active {
+  color: #e8c94a;
+  border-bottom-color: #e8c94a;
+}
+
+.table-wrap-full {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
 }
 
 .pos-table {

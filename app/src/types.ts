@@ -67,7 +67,7 @@ export type DraftOrder = {
   tp: number | null
 } | null
 
-export type Speed = 1 | 30 | 60 | 300 | 900 | 3600
+export type Speed = 1 | 2 | 5 | 30 | 60 | 300 | 900 | 3600
 
 export type EngineSnapshot = {
   simTime: number
