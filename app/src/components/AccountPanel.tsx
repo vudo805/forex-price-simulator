@@ -89,6 +89,9 @@ export default function AccountPanel({
       </div>
 
       <div className="reset-row">
+        <button className="btn btn-secondary btn-small" onClick={() => onReset(30)}>
+          Reset $30
+        </button>
         <button className="btn btn-secondary btn-small" onClick={() => onReset(10000)}>
           Reset $10,000
         </button>
