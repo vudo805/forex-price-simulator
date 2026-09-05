@@ -71,6 +71,12 @@
     "windowEndMs": 1786107600000,
     "tickCount": 2459
   },
+  "NFP_2026-09-04": {
+    "eventMs": 1788525000000,
+    "windowStartMs": 1788524940000,
+    "windowEndMs": 1788526800000,
+    "tickCount": 6915
+  },
   "CPI_2026-01-13": {
     "eventMs": 1768311000000,
     "windowStartMs": 1768310940000,
