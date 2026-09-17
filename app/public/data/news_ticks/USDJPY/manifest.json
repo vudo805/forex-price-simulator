@@ -29,6 +29,12 @@
     "windowEndMs": 1785349800000,
     "tickCount": 6882
   },
+  "FOMC_2026-09-16": {
+    "eventMs": 1789581600000,
+    "windowStartMs": 1789581540000,
+    "windowEndMs": 1789583400000,
+    "tickCount": 11279
+  },
   "NFP_2026-01-09": {
     "eventMs": 1767965400000,
     "windowStartMs": 1767965340000,
