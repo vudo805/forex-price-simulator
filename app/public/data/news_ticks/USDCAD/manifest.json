@@ -142,5 +142,11 @@
     "windowStartMs": 1789129740000,
     "windowEndMs": 1789131600000,
     "tickCount": 6362
+  },
+  "CPI_2026-10-14": {
+    "eventMs": 1791981000000,
+    "windowStartMs": 1791980940000,
+    "windowEndMs": 1791982800000,
+    "tickCount": 8629
   }
 }
